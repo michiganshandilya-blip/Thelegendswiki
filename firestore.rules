@@ -1,0 +1,156 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isUser(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Role resolution helpers
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasRole(role) {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        getUserData().role == role;
+    }
+
+    function isEditor() {
+      return hasRole('editor') || hasRole('administrator');
+    }
+
+    function isAdmin() {
+      return hasRole('administrator');
+    }
+
+    function isRegisteredUser() {
+      return isAuthenticated() && (
+        hasRole('registered_user') || 
+        hasRole('editor') || 
+        hasRole('administrator')
+      );
+    }
+
+    // ===============================================================
+    // 1. Users Collection
+    // ===============================================================
+    match /users/{userId} {
+      // Anyone can read public user profile data
+      allow read: if true;
+
+      // Users can create their own initial profile as registered_user or guest
+      allow create: if isUser(userId) && 
+        (request.resource.data.role == 'registered_user' || request.resource.data.role == 'guest');
+
+      // Users can update their profile, but CANNOT self-escalate role unless they are admin
+      allow update: if (isUser(userId) && request.resource.data.role == resource.data.role) || isAdmin();
+
+      // Only administrators can delete users
+      allow delete: if isAdmin();
+    }
+
+    // ===============================================================
+    // 2. Articles Collection
+    // ===============================================================
+    match /articles/{articleId} {
+      // Public can only read published articles. Authors, editors, and admins can read drafts & reviews
+      allow read: if resource.data.status == 'published' || 
+        (isAuthenticated() && (resource.data.authorId == request.auth.uid || isEditor()));
+
+      // Registered users can create drafts and pending reviews. Only editors/admins can create published articles.
+      allow create: if isRegisteredUser() && 
+        request.resource.data.title is string &&
+        request.resource.data.slug is string &&
+        request.resource.data.authorId == request.auth.uid &&
+        (
+          (request.resource.data.status in ['draft', 'pending_review']) ||
+          (isEditor() && request.resource.data.status in ['draft', 'pending_review', 'published', 'archived'])
+        );
+
+      // Authors can update their own drafts/pending reviews (authorId immutable, status locked to draft/pending); Editors/Admins can publish or modify any article
+      allow update: if (
+        isAuthenticated() && (
+          (
+            resource.data.authorId == request.auth.uid &&
+            request.resource.data.authorId == resource.data.authorId &&
+            request.resource.data.status in ['draft', 'pending_review']
+          ) ||
+          isEditor()
+        )
+      ) ||
+      // Allow viewCount and views telemetry increments
+      (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewCount', 'views']));
+
+      // Authors can delete their own drafts; Administrators can delete any article
+      allow delete: if (isAuthenticated() && resource.data.authorId == request.auth.uid && resource.data.status == 'draft') || isAdmin();
+    }
+
+    // ===============================================================
+    // 3. Categories Collection
+    // ===============================================================
+    match /categories/{categoryId} {
+      // Categories are public for all users to browse
+      allow read: if true;
+
+      // Only editors and administrators can modify taxonomy
+      allow create, update, delete: if isEditor();
+    }
+
+    // ===============================================================
+    // 4. Revisions Collection
+    // ===============================================================
+    match /revisions/{revisionId} {
+      // Revision history is publicly viewable for transparency
+      allow read: if true;
+
+      // Registered users, editors, and admins can record revisions
+      allow create: if isRegisteredUser() && 
+        request.resource.data.editorId == request.auth.uid &&
+        request.resource.data.articleId is string &&
+        request.resource.data.newContent is string;
+
+      // Revisions are immutable historical records; only admin can delete
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // ===============================================================
+    // 5. Bookmarks Collection
+    // ===============================================================
+    match /bookmarks/{bookmarkId} {
+      // Users can only view their own bookmarks
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+
+      // Users can only add bookmarks for themselves
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+
+      // Users can only delete their own bookmarks
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow update: if false;
+    }
+
+    // ===============================================================
+    // 6. Reports Collection
+    // ===============================================================
+    match /reports/{reportId} {
+      // Authenticated users can submit reports
+      allow create: if isAuthenticated() && 
+        request.resource.data.reporterId == request.auth.uid &&
+        request.resource.data.articleId is string &&
+        request.resource.data.reason is string;
+
+      // Only editors and administrators can inspect and resolve moderation reports
+      allow read, update, delete: if isEditor();
+    }
+  }
+}

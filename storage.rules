@@ -1,0 +1,26 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function isUnder5MB() {
+      return request.resource.size < 5 * 1024 * 1024;
+    }
+
+    // Article imagery location
+    match /articles/{articleId}/images/{imageFile} {
+      // Public read access for encyclopedia images
+      allow read: if true;
+
+      // Authenticated users can upload article media under 5MB
+      allow write: if isAuthenticated() && isImage() && isUnder5MB();
+    }
+  }
+}

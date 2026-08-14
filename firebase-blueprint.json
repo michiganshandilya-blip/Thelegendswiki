@@ -1,0 +1,277 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Registered contributor or administrator profile",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Firebase Auth UID"
+        },
+        "username": {
+          "type": "string",
+          "description": "Unique username",
+          "minLength": 3,
+          "maxLength": 30,
+          "pattern": "^[a-zA-Z0-9_]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Public display name",
+          "maxLength": 80
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "User email address"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["guest", "registered_user", "editor", "administrator"],
+          "description": "User permission role"
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Avatar image URL"
+        },
+        "bio": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Short author bio"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Account creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last profile update timestamp"
+        }
+      },
+      "required": ["id", "username", "email", "role"]
+    },
+    "Article": {
+      "title": "Article",
+      "description": "Comprehensive encyclopedia entry",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique article document ID"
+        },
+        "title": {
+          "type": "string",
+          "description": "Article title",
+          "minLength": 2,
+          "maxLength": 250
+        },
+        "slug": {
+          "type": "string",
+          "description": "Unique URL-friendly slug",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "summary": {
+          "type": "string",
+          "description": "Lead summary paragraph",
+          "minLength": 10,
+          "maxLength": 2000
+        },
+        "pronunciation": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "articleType": {
+          "type": "string",
+          "enum": ["person", "place", "science", "event", "technology", "organization", "general"]
+        },
+        "category": {
+          "type": "string",
+          "description": "Display category title"
+        },
+        "categorySlug": {
+          "type": "string",
+          "description": "Category slug for indexing"
+        },
+        "subCategory": {
+          "type": "string",
+          "description": "Subcategory name"
+        },
+        "authorId": {
+          "type": "string",
+          "description": "Author UID"
+        },
+        "author": {
+          "type": "string",
+          "description": "Author display name"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["draft", "pending_review", "published", "archived"]
+        },
+        "viewCount": {
+          "type": "number",
+          "description": "Total view count"
+        },
+        "readingTimeMinutes": {
+          "type": "number"
+        },
+        "featured": {
+          "type": "boolean"
+        },
+        "popular": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "title", "slug", "summary", "category", "categorySlug", "authorId", "status"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Encyclopedia knowledge domain taxonomy",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 1000
+        },
+        "iconName": {
+          "type": "string"
+        },
+        "articleCount": {
+          "type": "number"
+        }
+      },
+      "required": ["id", "name", "slug", "description", "iconName"]
+    },
+    "Revision": {
+      "title": "Revision",
+      "description": "Historical snapshot of an article edit",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "articleId": {
+          "type": "string"
+        },
+        "editorId": {
+          "type": "string"
+        },
+        "editorName": {
+          "type": "string"
+        },
+        "previousContent": {
+          "type": "string"
+        },
+        "newContent": {
+          "type": "string"
+        },
+        "changeSummary": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "articleId", "editorId", "newContent", "changeSummary"]
+    },
+    "Bookmark": {
+      "title": "Bookmark",
+      "description": "User saved article reference",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "articleId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        }
+      },
+      "required": ["userId", "articleId"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "Content moderation flag and feedback",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "articleId": {
+          "type": "string"
+        },
+        "reporterId": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 150
+        },
+        "description": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 1000
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "reviewed", "resolved", "dismissed"]
+        },
+        "createdAt": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "articleId", "reporterId", "reason", "description", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Stores user profiles with role-based permissions"
+    },
+    "/articles/{articleId}": {
+      "schema": { "$ref": "#/entities/Article" },
+      "description": "Stores encyclopedia articles and their current content"
+    },
+    "/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "Taxonomy definitions and subcategories"
+    },
+    "/revisions/{revisionId}": {
+      "schema": { "$ref": "#/entities/Revision" },
+      "description": "Immutable version history and audit log for articles"
+    },
+    "/bookmarks/{bookmarkId}": {
+      "schema": { "$ref": "#/entities/Bookmark" },
+      "description": "User specific reading bookmarks"
+    },
+    "/reports/{reportId}": {
+      "schema": { "$ref": "#/entities/Report" },
+      "description": "Moderation and content violation reports"
+    }
+  }
+}
