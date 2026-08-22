@@ -16,7 +16,7 @@ interface EmptyStateProps {
 export const EmptyState: React.FC<EmptyStateProps> = ({
   title = 'No Entries Found',
   description = 'There are no encyclopedia entries matching your current search parameters or category filter.',
-  actionText = 'Explore Categories',
+  actionText = 'Explore Disciplines',
   actionPath = '/',
   onAction,
   iconType = 'search',
@@ -35,32 +35,32 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   const getIcon = () => {
     switch (iconType) {
       case 'articles':
-        return <BookOpen size={24} className="text-sky-400" />;
+        return <BookOpen size={24} className="text-[#3366cc]" />;
       case 'explore':
-        return <Compass size={24} className="text-sky-400" />;
+        return <Compass size={24} className="text-[#3366cc]" />;
       case 'search':
       default:
-        return <SearchX size={24} className="text-sky-400" />;
+        return <SearchX size={24} className="text-[#3366cc]" />;
     }
   };
 
   return (
     <div
       id="empty-state-container"
-      className={`py-10 px-6 text-center max-w-md mx-auto bg-[#0e1422] border border-slate-800 rounded-sm my-6 shadow-xl shadow-black/40 ${className}`}
+      className={`py-10 px-6 text-center max-w-md mx-auto bg-[#ffffff] border border-[#eaecf0] rounded-sm my-6 shadow-xs ${className}`}
     >
-      <div className="w-12 h-12 bg-[#141c2e] border border-slate-700/60 rounded-sm flex items-center justify-center mx-auto mb-3 text-sky-400 shadow-md">
+      <div className="w-12 h-12 bg-[#f8f9fa] border border-[#cbd5e1] rounded-sm flex items-center justify-center mx-auto mb-3 text-[#3366cc] shadow-xs">
         {getIcon()}
       </div>
-      <h3 className="font-display text-lg font-bold text-slate-100 mb-1.5">
+      <h3 className="font-serif text-lg font-bold text-[#101418] mb-1.5">
         {title}
       </h3>
-      <p className="text-xs sm:text-sm text-slate-400 mb-5 leading-relaxed">
+      <p className="text-xs sm:text-sm text-[#54595d] mb-5 leading-relaxed font-sans">
         {description}
       </p>
       {actionText && (
         <Button
-          variant="outline"
+          variant="secondary"
           size="sm"
           onClick={handleAction}
         >

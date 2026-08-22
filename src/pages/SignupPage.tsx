@@ -3,6 +3,9 @@ import { useAuth } from '../context/AuthContext';
 import { useRouter } from '../context/RouterContext';
 import { Button } from '../components/common/Button';
 import { Breadcrumbs } from '../components/common/Breadcrumbs';
+import { SocialAuthProviders } from '../components/auth/SocialAuthProviders';
+import { TurnstileWidget } from '../components/common/TurnstileWidget';
+import { verifyTurnstileTokenOnServer } from '../services/turnstileService';
 import {
   UserPlus,
   User,
@@ -15,7 +18,6 @@ import {
   CheckCircle2,
   ShieldCheck,
   ArrowLeft,
-  Sparkles,
 } from 'lucide-react';
 import { isUsernameAvailable } from '../services/userService';
 
@@ -33,6 +35,8 @@ export const SignupPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isProviderDisabled, setIsProviderDisabled] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string>('');
+  const [turnstileResetKey, setTurnstileResetKey] = useState<number>(0);
 
   const [usernameStatus, setUsernameStatus] = useState<{
     checking?: boolean;
@@ -52,17 +56,17 @@ export const SignupPage: React.FC = () => {
   if (isAuthenticated && currentUser) {
     const handle = userProfile?.username || 'scholar';
     return (
-      <div className="max-w-md mx-auto my-12 bg-[#0e1424] border border-slate-800 rounded-sm p-6 sm:p-8 text-center space-y-6 shadow-2xl">
-        <div className="w-12 h-12 rounded-sm bg-blue-950/80 border border-blue-500/40 mx-auto flex items-center justify-center text-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.3)]">
+      <div className="max-w-md mx-auto my-12 bg-[#ffffff] border border-[#a2a9b1] rounded-sm p-6 sm:p-8 text-center space-y-6 shadow-xs">
+        <div className="w-12 h-12 rounded-sm bg-blue-50 border border-blue-200 mx-auto flex items-center justify-center text-[#3366cc]">
           <CheckCircle2 size={24} />
         </div>
         <div className="space-y-1">
-          <h2 className="text-xl font-bold text-slate-100 font-display">
+          <h2 className="text-xl font-bold text-[#101418] font-serif">
             Account Active
           </h2>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-[#54595d]">
             You are currently registered and signed in as{' '}
-            <strong className="text-blue-400">@{handle}</strong>.
+            <strong className="text-[#3366cc]">@{handle}</strong>.
           </p>
         </div>
         <div className="flex flex-col gap-2 pt-2">
@@ -74,11 +78,11 @@ export const SignupPage: React.FC = () => {
             View Your Profile
           </Button>
           <Button
-            variant="outline"
+            variant="secondary"
             size="md"
             onClick={() => navigate('/')}
           >
-            Explore Main Codex
+            Explore Main Page
           </Button>
         </div>
       </div>
@@ -101,10 +105,10 @@ export const SignupPage: React.FC = () => {
     try {
       const available = await isUsernameAvailable(clean);
       if (available) {
-        setUsernameStatus({ available: true, message: 'Handle is available' });
+        setUsernameStatus({ available: true, message: 'Username is available' });
         setFieldErrors((prev) => ({ ...prev, username: undefined }));
       } else {
-        setUsernameStatus({ available: false, message: 'This handle is already taken' });
+        setUsernameStatus({ available: false, message: 'This username is already taken' });
       }
     } catch {
       setUsernameStatus({});
@@ -160,8 +164,24 @@ export const SignupPage: React.FC = () => {
 
     if (!validate()) return;
 
+    if (!turnstileToken) {
+      setErrorMessage('Please complete the security verification challenge.');
+      return;
+    }
+
     setLoading(true);
     try {
+      // 1. Validate Turnstile token server-side
+      const verifyResult = await verifyTurnstileTokenOnServer(turnstileToken, 'signup');
+      if (!verifyResult.success) {
+        setErrorMessage(verifyResult.error || 'Security verification failed. Please try again.');
+        setTurnstileToken('');
+        setTurnstileResetKey((prev) => prev + 1);
+        setLoading(false);
+        return;
+      }
+
+      // 2. Proceed with existing Firebase registration
       const result = await signup(
         displayName.trim(),
         username.trim().toLowerCase(),
@@ -171,6 +191,8 @@ export const SignupPage: React.FC = () => {
 
       if (!result.success) {
         setErrorMessage(result.error || 'Failed to create account.');
+        setTurnstileToken('');
+        setTurnstileResetKey((prev) => prev + 1);
         if (result.isProviderDisabled) {
           setIsProviderDisabled(true);
         }
@@ -179,6 +201,8 @@ export const SignupPage: React.FC = () => {
       }
     } catch (err: any) {
       setErrorMessage(err?.message || 'An unexpected error occurred during registration.');
+      setTurnstileToken('');
+      setTurnstileResetKey((prev) => prev + 1);
     } finally {
       setLoading(false);
     }
@@ -188,22 +212,19 @@ export const SignupPage: React.FC = () => {
     <div className="space-y-6 max-w-xl mx-auto py-4">
       <Breadcrumbs items={[{ label: 'Create Contributor Account' }]} />
 
-      <div className="bg-[#0e1424] border border-slate-800 rounded-sm p-6 sm:p-8 shadow-2xl relative overflow-hidden">
-        {/* Ambient glow */}
-        <div className="absolute top-0 right-0 w-64 h-64 bg-radial from-blue-600/10 via-transparent to-transparent pointer-events-none" />
-
+      <div className="bg-[#ffffff] border border-[#a2a9b1] rounded-sm p-6 sm:p-8 shadow-xs relative">
         {/* Card Header */}
-        <div className="flex items-center gap-3.5 border-b border-slate-800 pb-5 mb-6">
-          <div className="w-9 h-9 rounded-sm bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 border border-blue-400/40 flex items-center justify-center text-white font-legend font-bold text-sm shadow-[0_0_12px_rgba(59,130,246,0.4)]">
+        <div className="flex items-center gap-3.5 border-b border-[#eaecf0] pb-4 mb-6">
+          <div className="w-9 h-9 rounded-sm bg-[#3366cc] text-white flex items-center justify-center font-bold text-sm">
             <UserPlus size={18} />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-blue-400 bg-blue-950/60 px-2 py-0.5 rounded-sm border border-blue-500/30">
-                Registry Induction
+              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#3366cc] bg-blue-50 px-2 py-0.5 rounded-sm border border-blue-200">
+                Registration
               </span>
             </div>
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-100 font-display">
+            <h1 className="text-xl sm:text-2xl font-bold text-[#101418] font-serif">
               Join TheLegendsWiki
             </h1>
           </div>
@@ -211,16 +232,16 @@ export const SignupPage: React.FC = () => {
 
         {/* Firebase Provider Notice */}
         {isProviderDisabled && (
-          <div className="mb-6 p-4 bg-amber-950/40 border border-amber-500/40 rounded-sm text-xs text-amber-200 space-y-2">
-            <div className="flex items-center gap-2 font-bold text-amber-300">
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-300 rounded-sm text-xs text-amber-900 space-y-2">
+            <div className="flex items-center gap-2 font-bold text-amber-800">
               <AlertCircle size={16} className="shrink-0" />
               <span>Firebase Email/Password Authentication Required</span>
             </div>
             <p className="leading-relaxed">
               Email/Password sign-in method must be enabled in your Firebase console.
             </p>
-            <div className="bg-[#080c14]/80 p-2.5 rounded-sm font-mono text-[11px] border border-amber-500/20 text-amber-100">
-              Firebase Console → Authentication → Sign-in method → Email/Password → Enable
+            <div className="bg-white p-2.5 rounded-sm font-mono text-[11px] border border-amber-200 text-amber-800">
+              Firebase Console &rarr; Authentication &rarr; Sign-in method &rarr; Email/Password &rarr; Enable
             </div>
           </div>
         )}
@@ -229,12 +250,21 @@ export const SignupPage: React.FC = () => {
         {errorMessage && !isProviderDisabled && (
           <div
             role="alert"
-            className="mb-6 p-3.5 bg-red-950/40 border border-red-500/40 rounded-sm text-xs text-red-200 flex items-start gap-2.5"
+            className="mb-6 p-3.5 bg-red-50 border border-red-200 rounded-sm text-xs text-red-700 flex items-start gap-2.5"
           >
-            <AlertCircle size={16} className="text-red-400 shrink-0 mt-0.5" />
+            <AlertCircle size={16} className="text-red-600 shrink-0 mt-0.5" />
             <div className="flex-1 leading-relaxed">{errorMessage}</div>
           </div>
         )}
+
+        {/* Social & Phone Auth Providers */}
+        <div className="mb-4">
+          <SocialAuthProviders 
+            disabled={loading}
+            onSuccess={() => navigate('/')}
+            onError={(msg) => setErrorMessage(msg)}
+          />
+        </div>
 
         {/* Form */}
         <form onSubmit={handleSubmit} noValidate className="space-y-4">
@@ -244,12 +274,12 @@ export const SignupPage: React.FC = () => {
             <div>
               <label
                 htmlFor="signup-name"
-                className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5"
+                className="block text-xs font-semibold text-[#54595d] uppercase tracking-wider mb-1.5 font-sans"
               >
-                Full / Display Name <span className="text-red-400">*</span>
+                Full / Display Name <span className="text-red-500">*</span>
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#72777d]">
                   <User size={15} />
                 </div>
                 <input
@@ -266,15 +296,15 @@ export const SignupPage: React.FC = () => {
                     }
                   }}
                   placeholder="e.g., Ada Lovelace"
-                  className={`w-full text-xs pl-9 pr-3 py-2.5 border rounded-sm bg-[#080c14] text-slate-100 placeholder:text-slate-600 focus:outline-none transition-all ${
+                  className={`w-full text-xs pl-9 pr-3 py-2.5 border rounded-sm bg-[#ffffff] text-[#202122] placeholder:text-[#72777d] focus:outline-none transition-all ${
                     fieldErrors.displayName
-                      ? 'border-red-500 ring-1 ring-red-500/50'
-                      : 'border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
+                      ? 'border-red-500 ring-1 ring-red-500'
+                      : 'border-[#a2a9b1] focus:border-[#3366cc] focus:ring-1 focus:ring-[#3366cc]'
                   }`}
                 />
               </div>
               {fieldErrors.displayName && (
-                <p className="text-[11px] text-red-400 mt-1 font-medium">{fieldErrors.displayName}</p>
+                <p className="text-[11px] text-red-600 mt-1 font-medium">{fieldErrors.displayName}</p>
               )}
             </div>
 
@@ -282,12 +312,12 @@ export const SignupPage: React.FC = () => {
             <div>
               <label
                 htmlFor="signup-username"
-                className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5"
+                className="block text-xs font-semibold text-[#54595d] uppercase tracking-wider mb-1.5 font-sans"
               >
-                Archival Handle <span className="text-red-400">*</span>
+                Username Handle <span className="text-red-500">*</span>
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500 font-mono text-xs">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#72777d] font-mono text-xs">
                   <AtSign size={14} />
                 </div>
                 <input
@@ -307,27 +337,27 @@ export const SignupPage: React.FC = () => {
                     }
                   }}
                   placeholder="ada_curator"
-                  className={`w-full text-xs pl-8 pr-3 py-2.5 font-mono border rounded-sm bg-[#080c14] text-slate-100 placeholder:text-slate-600 focus:outline-none transition-all ${
+                  className={`w-full text-xs pl-8 pr-3 py-2.5 font-mono border rounded-sm bg-[#ffffff] text-[#202122] placeholder:text-[#72777d] focus:outline-none transition-all ${
                     fieldErrors.username
-                      ? 'border-red-500 ring-1 ring-red-500/50'
+                      ? 'border-red-500 ring-1 ring-red-500'
                       : usernameStatus.available
-                      ? 'border-emerald-500/80 ring-1 ring-emerald-500/30'
-                      : 'border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
+                      ? 'border-emerald-600 ring-1 ring-emerald-300'
+                      : 'border-[#a2a9b1] focus:border-[#3366cc] focus:ring-1 focus:ring-[#3366cc]'
                   }`}
                 />
               </div>
               {fieldErrors.username ? (
-                <p className="text-[11px] text-red-400 mt-1 font-medium">{fieldErrors.username}</p>
+                <p className="text-[11px] text-red-600 mt-1 font-medium">{fieldErrors.username}</p>
               ) : usernameStatus.message ? (
                 <p
                   className={`text-[11px] mt-1 font-medium ${
-                    usernameStatus.available ? 'text-emerald-400' : 'text-amber-400'
+                    usernameStatus.available ? 'text-emerald-700' : 'text-amber-700'
                   }`}
                 >
                   {usernameStatus.message}
                 </p>
               ) : (
-                <p className="text-[10px] text-slate-500 mt-1 font-mono">
+                <p className="text-[10px] text-[#72777d] mt-1 font-mono">
                   3-30 chars (letters, numbers, underscores)
                 </p>
               )}
@@ -338,12 +368,12 @@ export const SignupPage: React.FC = () => {
           <div>
             <label
               htmlFor="signup-email"
-              className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5"
+              className="block text-xs font-semibold text-[#54595d] uppercase tracking-wider mb-1.5 font-sans"
             >
-              Email Address <span className="text-red-400">*</span>
+              Email Address <span className="text-red-500">*</span>
             </label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#72777d]">
                 <Mail size={15} />
               </div>
               <input
@@ -360,15 +390,15 @@ export const SignupPage: React.FC = () => {
                   }
                 }}
                 placeholder="scholar@university.edu"
-                className={`w-full text-xs pl-9 pr-3 py-2.5 border rounded-sm bg-[#080c14] text-slate-100 placeholder:text-slate-600 focus:outline-none transition-all ${
+                className={`w-full text-xs pl-9 pr-3 py-2.5 border rounded-sm bg-[#ffffff] text-[#202122] placeholder:text-[#72777d] focus:outline-none transition-all ${
                   fieldErrors.email
-                    ? 'border-red-500 ring-1 ring-red-500/50'
-                    : 'border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
+                    ? 'border-red-500 ring-1 ring-red-500'
+                    : 'border-[#a2a9b1] focus:border-[#3366cc] focus:ring-1 focus:ring-[#3366cc]'
                 }`}
               />
             </div>
             {fieldErrors.email && (
-              <p className="text-[11px] text-red-400 mt-1 font-medium">{fieldErrors.email}</p>
+              <p className="text-[11px] text-red-600 mt-1 font-medium">{fieldErrors.email}</p>
             )}
           </div>
 
@@ -378,12 +408,12 @@ export const SignupPage: React.FC = () => {
             <div>
               <label
                 htmlFor="signup-password"
-                className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5"
+                className="block text-xs font-semibold text-[#54595d] uppercase tracking-wider mb-1.5 font-sans"
               >
-                Password <span className="text-red-400">*</span>
+                Password <span className="text-red-500">*</span>
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#72777d]">
                   <Lock size={15} />
                 </div>
                 <input
@@ -400,23 +430,23 @@ export const SignupPage: React.FC = () => {
                     }
                   }}
                   placeholder="Min. 6 characters"
-                  className={`w-full text-xs pl-9 pr-10 py-2.5 border rounded-sm bg-[#080c14] text-slate-100 placeholder:text-slate-600 focus:outline-none transition-all ${
+                  className={`w-full text-xs pl-9 pr-10 py-2.5 border rounded-sm bg-[#ffffff] text-[#202122] placeholder:text-[#72777d] focus:outline-none transition-all ${
                     fieldErrors.password
-                      ? 'border-red-500 ring-1 ring-red-500/50'
-                      : 'border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
+                      ? 'border-red-500 ring-1 ring-red-500'
+                      : 'border-[#a2a9b1] focus:border-[#3366cc] focus:ring-1 focus:ring-[#3366cc]'
                   }`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-200 cursor-pointer"
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-[#72777d] hover:text-[#101418] cursor-pointer"
                 >
                   {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
               {fieldErrors.password && (
-                <p className="text-[11px] text-red-400 mt-1 font-medium">{fieldErrors.password}</p>
+                <p className="text-[11px] text-red-600 mt-1 font-medium">{fieldErrors.password}</p>
               )}
             </div>
 
@@ -424,12 +454,12 @@ export const SignupPage: React.FC = () => {
             <div>
               <label
                 htmlFor="signup-confirm-password"
-                className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5"
+                className="block text-xs font-semibold text-[#54595d] uppercase tracking-wider mb-1.5 font-sans"
               >
-                Confirm Password <span className="text-red-400">*</span>
+                Confirm Password <span className="text-red-500">*</span>
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#72777d]">
                   <Lock size={15} />
                 </div>
                 <input
@@ -446,26 +476,39 @@ export const SignupPage: React.FC = () => {
                     }
                   }}
                   placeholder="Repeat password"
-                  className={`w-full text-xs pl-9 pr-3 py-2.5 border rounded-sm bg-[#080c14] text-slate-100 placeholder:text-slate-600 focus:outline-none transition-all ${
+                  className={`w-full text-xs pl-9 pr-3 py-2.5 border rounded-sm bg-[#ffffff] text-[#202122] placeholder:text-[#72777d] focus:outline-none transition-all ${
                     fieldErrors.confirmPassword
-                      ? 'border-red-500 ring-1 ring-red-500/50'
-                      : 'border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
+                      ? 'border-red-500 ring-1 ring-red-500'
+                      : 'border-[#a2a9b1] focus:border-[#3366cc] focus:ring-1 focus:ring-[#3366cc]'
                   }`}
                 />
               </div>
               {fieldErrors.confirmPassword && (
-                <p className="text-[11px] text-red-400 mt-1 font-medium">{fieldErrors.confirmPassword}</p>
+                <p className="text-[11px] text-red-600 mt-1 font-medium">{fieldErrors.confirmPassword}</p>
               )}
             </div>
           </div>
 
           {/* Role clearance note */}
-          <div className="p-3 bg-[#121829] border border-slate-800 rounded-sm flex items-start gap-2.5 text-xs text-slate-400">
-            <ShieldCheck size={16} className="text-blue-400 shrink-0 mt-0.5" />
+          <div className="p-3 bg-[#f8f9fa] border border-[#eaecf0] rounded-sm flex items-start gap-2.5 text-xs text-[#54595d]">
+            <ShieldCheck size={16} className="text-[#3366cc] shrink-0 mt-0.5" />
             <div className="leading-relaxed">
-              New accounts are registered as <strong className="text-slate-200">Registered Scholar</strong> with public article authoring capabilities. Elevated editorial privileges are assigned through peer review by administrators.
+              New accounts are registered as <strong className="text-[#101418]">User (Contributor)</strong> with draft authoring and contribution submission capabilities. Administrative roles are assigned by the Super Administrator.
             </div>
           </div>
+
+          {/* Cloudflare Turnstile Security Verification */}
+          <TurnstileWidget
+            action="signup"
+            onVerify={(token) => {
+              setTurnstileToken(token);
+              setErrorMessage(null);
+            }}
+            onExpire={() => setTurnstileToken('')}
+            onError={() => setTurnstileToken('')}
+            resetKey={turnstileResetKey}
+            disabled={loading}
+          />
 
           {/* Submit button */}
           <div className="pt-2">
@@ -474,17 +517,17 @@ export const SignupPage: React.FC = () => {
               variant="primary"
               size="md"
               disabled={loading}
-              className="w-full justify-center shadow-[0_0_15px_rgba(37,99,235,0.4)]"
+              className="w-full justify-center"
             >
               {loading ? (
                 <span className="inline-flex items-center gap-2">
                   <span className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                  Creating Researcher Account...
+                  Creating Account...
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-2">
                   <UserPlus size={15} />
-                  Complete Induction & Join
+                  Complete Registration
                 </span>
               )}
             </Button>
@@ -492,13 +535,13 @@ export const SignupPage: React.FC = () => {
         </form>
 
         {/* Footer */}
-        <div className="mt-6 pt-5 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
+        <div className="mt-6 pt-4 border-t border-[#eaecf0] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-[#54595d]">
           <div>
             Already have an account?{' '}
             <button
               type="button"
               onClick={() => navigate('/login')}
-              className="text-blue-400 hover:text-blue-300 font-semibold underline underline-offset-2 cursor-pointer ml-1"
+              className="text-[#3366cc] hover:underline font-semibold cursor-pointer ml-1"
             >
               Log In
             </button>
@@ -506,9 +549,9 @@ export const SignupPage: React.FC = () => {
           <button
             type="button"
             onClick={() => navigate('/')}
-            className="text-slate-500 hover:text-slate-300 inline-flex items-center gap-1 transition-colors cursor-pointer"
+            className="text-[#72777d] hover:text-[#101418] inline-flex items-center gap-1 transition-colors cursor-pointer"
           >
-            <ArrowLeft size={12} /> Back to Archive
+            <ArrowLeft size={12} /> Back to Main Page
           </button>
         </div>
       </div>

@@ -1,25 +1,34 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useRouter } from '../context/RouterContext';
 import { useResolvedCategory, useCategories } from '../data/dataProvider';
+import { useSEO } from '../hooks/useSEO';
+import { generateCategorySchema } from '../lib/seo';
 import { Breadcrumbs } from '../components/common/Breadcrumbs';
 import { ArticleCard } from '../components/common/ArticleCard';
 import { CategoryCard } from '../components/common/CategoryCard';
 import { CategoryHeader } from '../components/category/CategoryHeader';
-import { SubcategoryList } from '../components/category/SubcategoryList';
 import { CategoryNotFound } from '../components/category/CategoryNotFound';
 import { EmptyState } from '../components/common/EmptyState';
 import { Button } from '../components/common/Button';
 import { 
   Grid, 
   List, 
-  Flame, 
   Clock, 
-  BookOpen, 
   Search, 
   ChevronLeft, 
   ChevronRight,
-  Filter
+  Filter,
+  Sparkles,
+  ShieldCheck,
+  Compass,
+  FileCheck2,
+  Scale,
+  Hammer,
+  Cpu,
+  TrendingDown,
+  EyeOff
 } from 'lucide-react';
+import { KnowledgeDepth } from '../types';
 
 interface CategoryPageProps {
   slug: string;
@@ -33,10 +42,44 @@ export const CategoryPage: React.FC<CategoryPageProps> = ({ slug }) => {
   const [sortBy, setSortBy] = useState<'popular' | 'title' | 'recent'>('popular');
   const [filterQuery, setFilterQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [categoryBrowserQuery, setCategoryBrowserQuery] = useState('');
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string>('all');
 
-  const { context: resolved } = useResolvedCategory(slug);
+  const { context: resolved } = useResolvedCategory(slug, { curtainsOnly: true });
   const { categories: allCategoriesList } = useCategories();
+
+  const isAllDossiers = slug === 'all' || slug === 'behind-the-curtains' || slug === 'curtains';
+
+  const categoryName = isAllDossiers
+    ? 'All Behind-the-Curtains Dossiers'
+    : resolved?.subcategory
+    ? resolved.subcategory.name
+    : resolved?.category?.name || 'Curtain Dimension';
+
+  // Dynamic SEO Injection for Category
+  useSEO(
+    resolved && (resolved.category || resolved.subcategory || isAllDossiers)
+      ? {
+          title: `${categoryName} — Behind the Curtains Codex`,
+          description: resolved.category?.description || resolved.subcategory?.description || `Explore cataloged Behind-the-Curtains records and investigative dossiers in ${categoryName}.`,
+          keywords: [
+            categoryName,
+            'behind the curtains',
+            'investigative dossiers',
+            'declassified archives',
+            'hidden history',
+            'uncredited creators',
+          ],
+          canonicalUrl: `/category/${slug}`,
+          ogType: 'website',
+          structuredData: resolved.category ? generateCategorySchema(resolved.category, resolved.articles.length) : undefined,
+        }
+      : {
+          title: 'Dossier Not Found',
+          description: 'The requested Behind-the-Curtains facet could not be found.',
+          noindex: true,
+        },
+    [slug, categoryName, resolved?.articles.length]
+  );
 
   // If slug is invalid
   if (!resolved) {
@@ -53,20 +96,28 @@ export const CategoryPage: React.FC<CategoryPageProps> = ({ slug }) => {
     recentArticles,
   } = resolved;
 
-  const isAllCategories = slug === 'all';
-
-  // Filter and sort articles for the "All Articles" section
+  // Filter and sort articles
   const processedArticles = useMemo(() => {
     let result = [...articles];
 
-    // Filter by query if user typed into within-category filter
+    // Subcategory filter if active
+    if (selectedSubcategory !== 'all') {
+      result = result.filter(
+        (a) =>
+          a.subCategory?.toLowerCase() === selectedSubcategory.toLowerCase() ||
+          a.tags.some((t) => t.toLowerCase() === selectedSubcategory.toLowerCase())
+      );
+    }
+
+    // Search query filter
     if (filterQuery.trim()) {
       const q = filterQuery.toLowerCase();
       result = result.filter(
         (a) =>
           a.title.toLowerCase().includes(q) ||
           a.summary.toLowerCase().includes(q) ||
-          a.tags.some((t) => t.toLowerCase().includes(q))
+          a.tags.some((t) => t.toLowerCase().includes(q)) ||
+          (a.behindCurtainsContext && a.behindCurtainsContext.toLowerCase().includes(q))
       );
     }
 
@@ -79,7 +130,7 @@ export const CategoryPage: React.FC<CategoryPageProps> = ({ slug }) => {
     });
 
     return result;
-  }, [articles, filterQuery, sortBy]);
+  }, [articles, filterQuery, sortBy, selectedSubcategory]);
 
   // Pagination calculations
   const totalPages = Math.max(1, Math.ceil(processedArticles.length / ITEMS_PER_PAGE));
@@ -88,365 +139,236 @@ export const CategoryPage: React.FC<CategoryPageProps> = ({ slug }) => {
     currentPage * ITEMS_PER_PAGE
   );
 
-  // Filtered categories for "Browse All Categories" view
-  const filteredAllCategories = useMemo(() => {
-    if (!isAllCategories) return [];
-    if (!categoryBrowserQuery.trim()) return allCategoriesList;
-    const q = categoryBrowserQuery.toLowerCase();
-    return allCategoriesList.filter(
-      (cat) =>
-        cat.name.toLowerCase().includes(q) ||
-        cat.description.toLowerCase().includes(q) ||
-        (cat.subcategories &&
-          cat.subcategories.some((s) => s.name.toLowerCase().includes(q) || s.description?.toLowerCase().includes(q)))
-    );
-  }, [isAllCategories, categoryBrowserQuery, allCategoriesList]);
-
   // Dynamic breadcrumbs
   const breadcrumbItems = useMemo(() => {
-    if (isAllCategories) {
-      return [{ label: 'All Categories' }];
+    if (isAllDossiers) {
+      return [{ label: 'Behind the Curtains' }, { label: 'All Dossiers' }];
     }
     if (isSubcategory && parentCategory && subcategory) {
       return [
-        { label: 'Categories', path: '/category/all' },
+        { label: 'Behind the Curtains', path: '/' },
         { label: parentCategory.name, path: `/category/${parentCategory.slug}` },
         { label: subcategory.name },
       ];
     }
     if (category) {
       return [
-        { label: 'Categories', path: '/category/all' },
+        { label: 'Behind the Curtains', path: '/' },
         { label: category.name },
       ];
     }
-    return [{ label: 'Category' }];
-  }, [isAllCategories, isSubcategory, parentCategory, subcategory, category]);
+    return [{ label: 'Investigation' }];
+  }, [isAllDossiers, isSubcategory, parentCategory, subcategory, category]);
 
-  const categoryName = isAllCategories
-    ? 'All Categories'
-    : subcategory
-    ? subcategory.name
-    : category?.name || 'Category';
-
-  const subcategoriesToDisplay = isSubcategory
+  const availableSubcategories = isSubcategory
     ? parentCategory?.subcategories
     : category?.subcategories;
 
   return (
-    <div id="category-page" className="space-y-7">
+    <div id="category-page" className="space-y-6 pb-10">
       {/* 1. BREADCRUMBS */}
       <Breadcrumbs items={breadcrumbItems} />
 
       {/* 2. CATEGORY HEADER */}
-      <CategoryHeader
-        category={category}
-        subcategory={subcategory}
-        parentCategory={parentCategory}
-        isAllCategories={isAllCategories}
-        totalArticles={articles.length}
-      />
-
-      {/* 3. BROWSE ALL CATEGORIES DIRECTORY (Shown on /category/all) */}
-      {isAllCategories && (
-        <section id="all-categories-browser" className="space-y-4 pt-2">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
-            <div>
-              <h2 className="font-display text-lg sm:text-xl font-bold text-slate-100">
-                Core Academic Disciplines
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Select a primary discipline or specialized sub-field to explore cataloged articles.
-              </p>
-            </div>
-
-            {/* Quick search inside categories */}
-            <div className="relative w-full sm:w-64">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
-              <input
-                type="text"
-                value={categoryBrowserQuery}
-                onChange={(e) => setCategoryBrowserQuery(e.target.value)}
-                placeholder="Filter disciplines..."
-                className="w-full pl-8 pr-3 py-1.5 text-xs bg-[#0e1422] border border-slate-800 rounded-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/40"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredAllCategories.map((cat) => (
-              <CategoryCard key={cat.id} category={cat} variant="expanded" />
-            ))}
-          </div>
-
-          {filteredAllCategories.length === 0 && (
-            <div className="py-8 text-center bg-[#0e1422] border border-slate-800 rounded-sm">
-              <p className="text-xs text-slate-400">
-                No disciplines matching &ldquo;{categoryBrowserQuery}&rdquo;.
-              </p>
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* 4. SUBCATEGORIES SECTION */}
-      {!isAllCategories && subcategoriesToDisplay && subcategoriesToDisplay.length > 0 && (
-        <SubcategoryList
-          subcategories={subcategoriesToDisplay}
-          parentCategory={parentCategory || category}
-          currentSubcategorySlug={subcategory?.slug}
-        />
-      )}
-
-      {/* 5. POPULAR ARTICLES IN CATEGORY */}
-      {popularArticles.length > 0 && (
-        <section id="popular-articles-section" className="space-y-3 pt-2">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-            <div className="flex items-center gap-2">
-              <Flame size={16} className="text-amber-400" />
-              <h2 className="font-display text-base sm:text-lg font-bold text-slate-100">
-                Popular in {categoryName}
-              </h2>
-            </div>
-            <span className="text-xs text-slate-500 font-mono">
-              High readership entries
+      <header className="curtains-atmosphere border border-amber-500/40 text-slate-100 rounded-sm p-6 sm:p-8 shadow-xl relative overflow-hidden space-y-3">
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-600/30 via-amber-400 to-amber-600/30" />
+        <div className="relative z-10 space-y-3 max-w-3xl">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] uppercase font-mono font-bold tracking-widest text-amber-300 bg-amber-950/80 px-2.5 py-0.5 rounded-xs border border-amber-400/40 inline-flex items-center gap-1.5 shadow-xs">
+              <Sparkles size={11} className="text-amber-400" />
+              <span>Behind the Curtains Investigation</span>
+            </span>
+            <span className="text-slate-600">&bull;</span>
+            <span className="text-xs text-slate-400 font-mono">
+              {articles.length} Classified Dossiers
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {popularArticles.map((article) => (
+          <h1 className="font-serif text-2xl sm:text-4xl font-bold tracking-tight text-slate-100">
+            {categoryName}
+          </h1>
+
+          <p className="text-amber-200/90 font-serif italic text-sm sm:text-base">
+            &ldquo;Revealing what happened behind closed doors, decisions, and finished creations.&rdquo;
+          </p>
+
+          <p className="text-xs sm:text-sm text-slate-300 leading-relaxed font-sans max-w-2xl">
+            {category?.description || subcategory?.description || 'All records and investigations published under strict forensic standards.'}
+          </p>
+        </div>
+      </header>
+
+      {/* 3. SUBCATEGORY PILLS */}
+      {availableSubcategories && availableSubcategories.length > 0 && (
+        <div className="bg-white border border-[#cbd5e1] p-3 rounded-sm flex flex-wrap items-center gap-2 shadow-xs">
+          <span className="text-xs font-mono uppercase font-bold text-slate-500 mr-2">
+            Sub-Facets:
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedSubcategory('all');
+              setCurrentPage(1);
+            }}
+            className={`text-xs px-2.5 py-1 rounded-xs font-medium transition-all cursor-pointer ${
+              selectedSubcategory === 'all'
+                ? 'bg-amber-800 text-white font-bold'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+            }`}
+          >
+            All Sub-Facets ({articles.length})
+          </button>
+          {availableSubcategories.map((sub) => (
+            <button
+              key={sub.id}
+              type="button"
+              onClick={() => {
+                setSelectedSubcategory(sub.name);
+                setCurrentPage(1);
+              }}
+              className={`text-xs px-2.5 py-1 rounded-xs font-medium transition-all cursor-pointer ${
+                selectedSubcategory.toLowerCase() === sub.name.toLowerCase()
+                  ? 'bg-amber-800 text-white font-bold'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+              }`}
+            >
+              {sub.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 4. FILTER & CONTROLS BAR */}
+      <div className="bg-white border border-[#cbd5e1] rounded-sm p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+        <div className="relative flex-1 max-w-md">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={filterQuery}
+            onChange={(e) => {
+              setFilterQuery(e.target.value);
+              setCurrentPage(1);
+            }}
+            placeholder={`Filter inside ${categoryName}...`}
+            className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-xs focus:bg-white focus:outline-none focus:border-amber-600 focus:ring-1 focus:ring-amber-600 transition-all font-sans"
+          />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 text-xs">
+            <span className="text-slate-500 font-mono">Sort:</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="bg-slate-50 border border-slate-300 rounded-xs px-2 py-1 text-xs font-mono text-slate-800 focus:outline-none focus:border-amber-600 cursor-pointer"
+            >
+              <option value="popular">Most Studied</option>
+              <option value="recent">Recent Disclosures</option>
+              <option value="title">Alphabetical (A–Z)</option>
+            </select>
+          </div>
+
+          <div className="flex items-center border border-slate-300 rounded-xs overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setViewMode('grid')}
+              className={`p-1.5 ${viewMode === 'grid' ? 'bg-amber-800 text-white' : 'bg-white text-slate-600 hover:bg-slate-100'} transition-colors cursor-pointer`}
+              title="Grid View"
+            >
+              <Grid size={13} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              className={`p-1.5 ${viewMode === 'list' ? 'bg-amber-800 text-white' : 'bg-white text-slate-600 hover:bg-slate-100'} transition-colors cursor-pointer`}
+              title="List View"
+            >
+              <List size={13} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 5. ARTICLES LIST / GRID */}
+      {processedArticles.length === 0 ? (
+        <EmptyState
+          title="No Behind-the-Curtains Records Found"
+          message={`No documented investigations matched your search filter "${filterQuery}".`}
+          actionLabel="Clear Filter"
+          onAction={() => {
+            setFilterQuery('');
+            setSelectedSubcategory('all');
+          }}
+        />
+      ) : (
+        <div className="space-y-4">
+          <div
+            className={
+              viewMode === 'grid'
+                ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'
+                : 'space-y-3'
+            }
+          >
+            {paginatedArticles.map((article) => (
               <ArticleCard
                 key={article.id}
                 article={article}
-                layout="popular"
+                layout={viewMode === 'grid' ? 'vertical' : 'horizontal'}
                 showImage={true}
                 showViews={true}
               />
             ))}
           </div>
-        </section>
-      )}
 
-      {/* 6. RECENTLY ADDED ARTICLES */}
-      {recentArticles.length > 0 && (
-        <section id="recent-articles-section" className="space-y-3 pt-2">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-            <div className="flex items-center gap-2">
-              <Clock size={15} className="text-sky-400" />
-              <h2 className="font-display text-base sm:text-lg font-bold text-slate-100">
-                Recently Updated in {categoryName}
-              </h2>
-            </div>
-            <span className="text-xs text-slate-500 font-mono">
-              Latest revisions
-            </span>
-          </div>
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-4 border-t border-slate-200 text-xs text-slate-600">
+              <span className="font-mono">
+                Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1}–
+                {Math.min(currentPage * ITEMS_PER_PAGE, processedArticles.length)} of{' '}
+                {processedArticles.length} investigations
+              </span>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {recentArticles.map((article) => (
-              <ArticleCard
-                key={article.id}
-                article={article}
-                layout="recent"
-                showDate={true}
-                showImage={false}
-              />
-            ))}
-          </div>
-        </section>
-      )}
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  icon={<ChevronLeft size={13} />}
+                >
+                  Previous
+                </Button>
 
-      {/* 7. ALL ARTICLES IN CATEGORY (With Sort, Layout & Pagination) */}
-      <section id="all-category-articles-section" className="space-y-4 pt-4 border-t border-slate-800">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2">
-            <BookOpen size={16} className="text-sky-400" />
-            <h2 className="font-display text-base sm:text-lg font-bold text-slate-100">
-              All {categoryName} Articles
-            </h2>
-            <span className="text-xs text-slate-400 font-mono">
-              ({processedArticles.length})
-            </span>
-          </div>
-
-          {/* Filter & Sort Controls */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* Filter Input */}
-            {articles.length > 3 && (
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Filter entries..."
-                  value={filterQuery}
-                  onChange={(e) => {
-                    setFilterQuery(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="pl-7 pr-2 py-1 text-xs bg-[#0e1422] border border-slate-800 rounded-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/40 w-36 sm:w-44"
-                />
-                <Filter size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
-              </div>
-            )}
-
-            {/* Sort Selector */}
-            <div className="flex items-center gap-1 text-xs text-slate-400">
-              <span className="text-slate-500 hidden xs:inline">Sort:</span>
-              <select
-                value={sortBy}
-                onChange={(e) => {
-                  setSortBy(e.target.value as any);
-                  setCurrentPage(1);
-                }}
-                className="bg-[#0e1422] border border-slate-800 rounded-sm px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-sky-500 cursor-pointer"
-              >
-                <option value="popular">Most Read</option>
-                <option value="title">Alphabetical (A–Z)</option>
-                <option value="recent">Recently Updated</option>
-              </select>
-            </div>
-
-            {/* Layout switch */}
-            <div className="flex items-center border border-slate-800 rounded-sm overflow-hidden bg-[#0e1422]">
-              <button
-                type="button"
-                onClick={() => setViewMode('grid')}
-                className={`p-1.5 cursor-pointer transition-colors ${
-                  viewMode === 'grid'
-                    ? 'bg-[#141c2e] text-sky-400 font-bold'
-                    : 'text-slate-500 hover:text-slate-300'
-                }`}
-                title="Grid layout"
-                aria-label="Grid layout"
-              >
-                <Grid size={14} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('list')}
-                className={`p-1.5 cursor-pointer transition-colors ${
-                  viewMode === 'list'
-                    ? 'bg-[#141c2e] text-sky-400 font-bold'
-                    : 'text-slate-500 hover:text-slate-300'
-                }`}
-                title="List layout"
-                aria-label="List layout"
-              >
-                <List size={14} />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Article Grid / List */}
-        {paginatedArticles.length > 0 ? (
-          viewMode === 'grid' ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {paginatedArticles.map((article) => (
-                <ArticleCard
-                  key={article.id}
-                  article={article}
-                  layout="standard"
-                  showImage={true}
-                  showDate={sortBy === 'recent'}
-                  showViews={true}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {paginatedArticles.map((article) => (
-                <ArticleCard
-                  key={article.id}
-                  article={article}
-                  layout="horizontal"
-                  showImage={true}
-                  showViews={true}
-                />
-              ))}
-            </div>
-          )
-        ) : (
-          /* Empty state */
-          <div className="py-6">
-            <EmptyState
-              title={
-                filterQuery
-                  ? 'No matching entries'
-                  : 'No articles in this category yet'
-              }
-              description={
-                filterQuery
-                  ? `No articles in ${categoryName} match "${filterQuery}".`
-                  : `There are currently no cataloged articles under ${categoryName}. You can author a new entry or explore other disciplines.`
-              }
-              actionText={filterQuery ? 'Clear Filter' : 'Browse All Categories'}
-              onAction={
-                filterQuery
-                  ? () => setFilterQuery('')
-                  : () => navigate('/category/all')
-              }
-              iconType="articles"
-            />
-          </div>
-        )}
-
-        {/* 8. PAGINATION CONTROLS */}
-        {totalPages > 1 && (
-          <div
-            id="category-pagination"
-            className="flex items-center justify-between pt-4 border-t border-slate-800 text-xs text-slate-400"
-          >
-            <div className="text-slate-500 font-mono">
-              Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1}–
-              {Math.min(currentPage * ITEMS_PER_PAGE, processedArticles.length)} of{' '}
-              {processedArticles.length} entries
-            </div>
-
-            <div className="flex items-center gap-1">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="px-2 py-1 h-7"
-                aria-label="Previous page"
-              >
-                <ChevronLeft size={13} />
-                <span className="hidden xs:inline ml-1">Previous</span>
-              </Button>
-
-              <div className="flex items-center gap-1 px-1">
                 {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
                   <button
                     key={pageNum}
                     type="button"
                     onClick={() => setCurrentPage(pageNum)}
-                    className={`w-7 h-7 rounded-sm text-xs font-mono transition-colors cursor-pointer ${
+                    className={`w-7 h-7 rounded-xs font-mono text-xs cursor-pointer transition-colors ${
                       currentPage === pageNum
-                        ? 'bg-sky-500 text-slate-950 font-bold'
-                        : 'text-slate-400 bg-[#0e1422] border border-slate-800 hover:bg-[#141c2e] hover:text-slate-200'
+                        ? 'bg-amber-800 text-white font-bold'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                     }`}
                   >
                     {pageNum}
                   </button>
                 ))}
-              </div>
 
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className="px-2 py-1 h-7"
-                aria-label="Next page"
-              >
-                <span className="hidden xs:inline mr-1">Next</span>
-                <ChevronRight size={13} />
-              </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  icon={<ChevronRight size={13} />}
+                >
+                  Next
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
-      </section>
+          )}
+        </div>
+      )}
     </div>
   );
 };

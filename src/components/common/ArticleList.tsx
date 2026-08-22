@@ -38,7 +38,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
 
   if (layout === 'compact') {
     return (
-      <div className={`divide-y divide-slate-800 bg-[#0e1422] border border-slate-800 rounded-sm p-3 shadow-md ${className}`}>
+      <div className={`divide-y divide-[#eaecf0] bg-[#ffffff] border border-[#a2a9b1] rounded-sm p-3 shadow-xs ${className}`}>
         {articles.map((article) => (
           <ArticleCard
             key={article.id}

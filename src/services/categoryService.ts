@@ -13,6 +13,7 @@ import { db, isFirebaseConfigured } from '../lib/firebase';
 import { Category, Subcategory } from '../types';
 import { validateCategory } from '../lib/validation';
 import { getDbTimestamp } from '../lib/timestamps';
+import { stripUndefined } from '../lib/sanitize';
 import { DEMO_CATEGORIES } from '../data/demoData';
 
 const CATEGORIES_COLLECTION = 'categories';
@@ -140,7 +141,7 @@ export async function createCategory(
     updatedAt: now,
   };
 
-  await setDoc(newDocRef, payload);
+  await setDoc(newDocRef, stripUndefined(payload));
   return { id: newDocRef.id, success: true };
 }
 
@@ -158,10 +159,13 @@ export async function updateCategory(
   }
 
   const docRef = doc(db, CATEGORIES_COLLECTION, id);
-  await updateDoc(docRef, {
-    ...categoryData,
-    updatedAt: getDbTimestamp(),
-  });
+  await updateDoc(
+    docRef,
+    stripUndefined({
+      ...categoryData,
+      updatedAt: getDbTimestamp(),
+    })
+  );
 
   return { success: true };
 }
@@ -181,11 +185,15 @@ export async function seedCategories(categories: Category[] = DEMO_CATEGORIES): 
     const docRef = doc(db, CATEGORIES_COLLECTION, cat.id);
     const now = getDbTimestamp();
 
-    batch.set(docRef, {
-      ...cat,
-      createdAt: now,
-      updatedAt: now,
-    }, { merge: true });
+    batch.set(
+      docRef,
+      stripUndefined({
+        ...cat,
+        createdAt: now,
+        updatedAt: now,
+      }),
+      { merge: true }
+    );
 
     count++;
   }

@@ -12,6 +12,7 @@ import { db, isFirebaseConfigured } from '../lib/firebase';
 import { Report, ReportStatus } from '../types';
 import { validateReport } from '../lib/validation';
 import { getDbTimestamp } from '../lib/timestamps';
+import { stripUndefined } from '../lib/sanitize';
 
 const REPORTS_COLLECTION = 'reports';
 
@@ -55,7 +56,7 @@ export async function createReport(
     createdAt: now,
   };
 
-  await setDoc(newDocRef, payload);
+  await setDoc(newDocRef, stripUndefined(payload));
   return { id: newDocRef.id, success: true };
 }
 

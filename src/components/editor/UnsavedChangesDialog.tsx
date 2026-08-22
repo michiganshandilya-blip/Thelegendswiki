@@ -16,38 +16,38 @@ export const UnsavedChangesDialog: React.FC<UnsavedChangesDialogProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
       aria-labelledby="unsaved-modal-title"
     >
-      <div className="bg-[#0e1424] border border-amber-500/50 rounded-sm w-full max-w-md p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-[#ffffff] border border-amber-300 rounded-sm w-full max-w-md p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
         <div className="flex items-start gap-3">
-          <div className="p-2 bg-amber-950/80 border border-amber-800/80 rounded-sm text-amber-400 shrink-0">
+          <div className="p-2 bg-amber-50 border border-amber-200 rounded-sm text-amber-700 shrink-0">
             <AlertTriangle size={20} />
           </div>
           <div>
-            <h3 id="unsaved-modal-title" className="text-base font-bold text-slate-100 font-display">
+            <h3 id="unsaved-modal-title" className="text-base font-bold text-[#101418] font-serif">
               Unsaved Changes Detected
             </h3>
-            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+            <p className="text-xs text-[#54595d] mt-1 leading-relaxed font-sans">
               You have modifications that have not been saved to the database. Leaving this page will discard any unsaved draft content.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+        <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[#eaecf0]">
           <button
             type="button"
             onClick={onCancel}
-            className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-sm text-xs font-semibold cursor-pointer transition-colors"
+            className="px-3.5 py-1.5 bg-[#f8f9fa] hover:bg-[#eaecf0] text-[#101418] border border-[#a2a9b1] rounded-sm text-xs font-semibold cursor-pointer transition-colors"
           >
             Continue Editing
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className="px-3.5 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/40 rounded-sm text-xs font-semibold cursor-pointer transition-colors"
+            className="px-3.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-300 rounded-sm text-xs font-semibold cursor-pointer transition-colors"
           >
             Discard &amp; Leave
           </button>

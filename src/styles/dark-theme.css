@@ -1,0 +1,248 @@
+/* ==========================================================================
+   THELEGENDSWIKI ARCHIVAL NIGHT VISION (DARK MODE) THEME
+   Deep Obsidian, Amber Marginalia & Declassified Phosphor Aesthetics
+   ========================================================================== */
+
+html.dark {
+  color-scheme: dark;
+
+  /* Theme color token overrides */
+  --color-bg-base: #070a12;
+  --color-bg-surface: #0d1322;
+  --color-bg-surface-elevated: #131c31;
+  --color-bg-surface-active: #1e2b48;
+  --color-border-subtle: #1e293b;
+  --color-border-accent: #3b82f6;
+  --color-accent-blue: #60a5fa;
+  --color-accent-gold: #f59e0b;
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #cbd5e1;
+  --color-text-muted: #94a3b8;
+}
+
+html.dark body {
+  background-color: #070a12 !important;
+  color: #f1f5f9 !important;
+}
+
+/* ==========================================================================
+   SURFACE BACKGROUNDS & SHELLS
+   ========================================================================== */
+html.dark #encyclopedia-header {
+  background-color: #0b1120 !important;
+  border-color: #1e293b !important;
+  color: #f8fafc !important;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5);
+}
+
+html.dark #encyclopedia-sidebar {
+  background-color: #080c16 !important;
+  border-color: #1e293b !important;
+  color: #94a3b8 !important;
+}
+
+html.dark #encyclopedia-footer {
+  background-color: #060911 !important;
+  border-color: #1e293b !important;
+  color: #94a3b8 !important;
+}
+
+html.dark #main-content-region {
+  background-color: rgba(10, 14, 24, 0.88) !important;
+  border-color: #1e293b !important;
+}
+
+/* Common light-class mappings to dark archival mode */
+html.dark .bg-white,
+html.dark .bg-\[\#ffffff\] {
+  background-color: #0d1322 !important;
+  color: #f1f5f9;
+}
+
+html.dark .bg-\[\#f8f9fa\],
+html.dark .bg-\[\#fbfbfd\],
+html.dark .bg-\[\#f0f2f5\],
+html.dark .bg-\[\#f8fafc\] {
+  background-color: #111a2e !important;
+}
+
+html.dark .bg-\[\#f1f5f9\] {
+  background-color: #16223b !important;
+}
+
+html.dark .border-\[\#eaecf0\],
+html.dark .border-\[\#cbd5e1\],
+html.dark .border-\[\#a2a9b1\],
+html.dark .border-\[\#e2e8f0\] {
+  border-color: #1e293b !important;
+}
+
+html.dark .border-\[\#f1f5f9\] {
+  border-color: #162035 !important;
+}
+
+/* ==========================================================================
+   TEXT CONTRAST & TYPOGRAPHY
+   ========================================================================== */
+html.dark h1,
+html.dark h2,
+html.dark h3,
+html.dark h4,
+html.dark h5,
+html.dark h6 {
+  color: #f8fafc !important;
+}
+
+html.dark .text-\[\#101418\],
+html.dark .text-\[\#202122\],
+html.dark .text-\[\#0f172a\],
+html.dark .text-\[\#1e293b\] {
+  color: #f8fafc !important;
+}
+
+html.dark .text-\[\#54595d\],
+html.dark .text-\[\#72777d\],
+html.dark .text-\[\#475569\],
+html.dark .text-\[\#64748b\] {
+  color: #94a3b8 !important;
+}
+
+html.dark .text-\[\#3366cc\] {
+  color: #60a5fa !important;
+}
+
+html.dark a.text-\[\#3366cc\]:hover {
+  color: #93c5fd !important;
+}
+
+/* ==========================================================================
+   ARTICLE BODY & SCHOLARLY READING EXPERIENCE
+   ========================================================================== */
+html.dark .encyclopedia-article-body {
+  color: #e2e8f0 !important;
+}
+
+html.dark .encyclopedia-article-body p {
+  color: #e2e8f0 !important;
+}
+
+html.dark .encyclopedia-article-body strong {
+  color: #ffffff !important;
+}
+
+html.dark .encyclopedia-article-body h2 {
+  color: #f8fafc !important;
+  border-bottom-color: #1e293b !important;
+}
+
+html.dark .encyclopedia-article-body h3 {
+  color: #f1f5f9 !important;
+}
+
+html.dark .encyclopedia-article-body a {
+  color: #60a5fa !important;
+  border-bottom-color: rgba(96, 165, 250, 0.4) !important;
+}
+
+html.dark .encyclopedia-article-body a:hover {
+  color: #93c5fd !important;
+}
+
+html.dark .encyclopedia-article-body blockquote {
+  background-color: #111a2e !important;
+  border-color: #1e293b !important;
+  border-left-color: #f59e0b !important;
+  color: #cbd5e1 !important;
+}
+
+/* ==================================================
+   TABLE OF CONTENTS & CITATION BOXES
+   ================================================== */
+html.dark #toc,
+html.dark nav[aria-label="Table of Contents"] {
+  background-color: #0c1220 !important;
+  border-color: #1e293b !important;
+}
+
+html.dark #references,
+html.dark section[aria-label="References and Sources"] {
+  border-color: #1e293b !important;
+}
+
+html.dark #references li {
+  color: #cbd5e1 !important;
+}
+
+/* ==================================================
+   INFOBOXES, TABLES & CARDS
+   ================================================== */
+html.dark #article-infobox-container,
+html.dark aside[aria-label*="Fact"] {
+  background-color: #0c1220 !important;
+  border-color: #1e293b !important;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.6) !important;
+}
+
+html.dark #article-infobox-container .divide-y > div {
+  border-top-color: #1e293b !important;
+}
+
+/* ==================================================
+   INPUTS, SEARCH & MODALS
+   ================================================== */
+html.dark input,
+html.dark textarea,
+html.dark select {
+  background-color: #0c1220 !important;
+  border-color: #1e293b !important;
+  color: #f8fafc !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #64748b !important;
+}
+
+html.dark input:focus,
+html.dark textarea:focus {
+  border-color: #3b82f6 !important;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
+}
+
+/* Breadcrumbs & Badge styling */
+html.dark .breadcrumb-separator {
+  color: #475569 !important;
+}
+
+/* Category card highlights */
+html.dark .category-card-item {
+  background-color: #0c1220 !important;
+  border-color: #1e293b !important;
+}
+
+html.dark .category-card-item:hover {
+  border-color: rgba(245, 158, 11, 0.4) !important;
+  box-shadow: 0 6px 24px -4px rgba(0, 0, 0, 0.7) !important;
+}
+
+/* Code blocks */
+html.dark pre {
+  background-color: #060911 !important;
+  border-color: #1e293b !important;
+  color: #38bdf8 !important;
+}
+
+/* Dark mode scrollbars */
+html.dark ::-webkit-scrollbar-track {
+  background: #070a12;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 3px;
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}

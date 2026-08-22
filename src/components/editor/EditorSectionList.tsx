@@ -1,90 +1,47 @@
-import React from 'react';
-import { ArticleSection } from '../../types';
+import React, { useState } from 'react';
+import { ArticleSection, ArticleImageFigure, ArticleCitation } from '../../types';
 import { EditorToolbar } from './EditorToolbar';
+import { ImageUploaderModal } from '../common/ImageUploaderModal';
+import { validateImageAlt } from '../../lib/validation';
+import { MANDATORY_DOSSIER_SECTIONS } from '../../lib/dossierStructure';
 import {
   Plus,
   Trash2,
-  ChevronUp,
-  ChevronDown,
   Layers,
-  FileText,
   ListPlus,
   Image as ImageIcon,
+  Edit2,
+  Info,
+  CheckCircle2,
+  AlertCircle,
+  BookOpen,
+  Sparkles,
 } from 'lucide-react';
 
 interface EditorSectionListProps {
   sections: ArticleSection[];
+  citations?: ArticleCitation[];
+  categorySlug?: string;
+  categoryName?: string;
+  errors?: Record<string, string>;
   onChange: (sections: ArticleSection[]) => void;
+  onOpenAiWritingTools?: (sectionIndex: number) => void;
 }
 
 export const EditorSectionList: React.FC<EditorSectionListProps> = ({
   sections,
+  citations = [],
+  categorySlug = 'behind-financial-markets',
+  categoryName = 'Behind Financial Markets',
+  errors = {},
   onChange,
+  onOpenAiWritingTools,
 }) => {
-  // Add a new section
-  const handleAddSection = () => {
-    const nextIdx = sections.length + 1;
-    const newSection: ArticleSection = {
-      id: `section-${Date.now()}`,
-      title: `Section ${nextIdx}`,
-      content: [''],
-      bulletPoints: [],
-    };
-    onChange([...sections, newSection]);
-  };
+  const [activeFigureSectionIndex, setActiveFigureSectionIndex] = useState<number | null>(null);
 
-  // Remove a section
-  const handleRemoveSection = (index: number) => {
-    if (sections.length <= 1) {
-      // Keep at least one empty section
-      onChange([
-        {
-          id: `section-${Date.now()}`,
-          title: 'Overview',
-          content: [''],
-          bulletPoints: [],
-        },
-      ]);
-      return;
-    }
-    const updated = sections.filter((_, idx) => idx !== index);
-    onChange(updated);
-  };
-
-  // Move section up/down
-  const handleMoveSection = (index: number, direction: 'up' | 'down') => {
-    const targetIdx = direction === 'up' ? index - 1 : index + 1;
-    if (targetIdx < 0 || targetIdx >= sections.length) return;
-
-    const copy = [...sections];
-    const temp = copy[index];
-    copy[index] = copy[targetIdx];
-    copy[targetIdx] = temp;
-    onChange(copy);
-  };
-
-  // Update Section Title
-  const handleTitleChange = (index: number, title: string) => {
-    const copy = [...sections];
-    // Generate clean section ID from title
-    const cleanId = title
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || `section-${index + 1}`;
-
-    copy[index] = {
-      ...copy[index],
-      title,
-      id: cleanId,
-    };
-    onChange(copy);
-  };
-
-  // Update Section Content text (multi-paragraph raw or array)
+  // Update Section Content text
   const handleContentChange = (index: number, text: string) => {
     const copy = [...sections];
-    // Split on double newlines to form clean paragraph array
     const paragraphs = text
       .split(/\n\n+/)
       .map((p) => p.trim())
@@ -105,9 +62,60 @@ export const EditorSectionList: React.FC<EditorSectionListProps> = ({
     placeholder: string = ''
   ) => {
     const section = sections[index];
-    const rawContent = section.content.join('\n\n');
+    const rawContent = (section?.content || []).join('\n\n');
     const newContent = `${rawContent}${rawContent ? '\n\n' : ''}${prefix}${placeholder}${suffix}`;
     handleContentChange(index, newContent);
+  };
+
+  // Figure handlers
+  const handleAttachFigure = (
+    index: number,
+    figureData: {
+      url: string;
+      caption: string;
+      alt: string;
+      credit: string;
+      align?: 'right' | 'left' | 'center' | 'full';
+    }
+  ) => {
+    const copy = [...sections];
+    copy[index] = {
+      ...copy[index],
+      figure: {
+        url: figureData.url,
+        caption: figureData.caption,
+        alt: figureData.alt,
+        credit: figureData.credit || undefined,
+        align: figureData.align || 'right',
+      },
+    };
+    onChange(copy);
+  };
+
+  const handleUpdateFigureField = (
+    sectionIndex: number,
+    field: keyof ArticleImageFigure,
+    val: any
+  ) => {
+    const copy = [...sections];
+    if (!copy[sectionIndex].figure) return;
+    copy[sectionIndex] = {
+      ...copy[sectionIndex],
+      figure: {
+        ...copy[sectionIndex].figure!,
+        [field]: val,
+      },
+    };
+    onChange(copy);
+  };
+
+  const handleRemoveFigure = (index: number) => {
+    const copy = [...sections];
+    copy[index] = {
+      ...copy[index],
+      figure: undefined,
+    };
+    onChange(copy);
   };
 
   // Bullet Point handlers
@@ -144,114 +152,253 @@ export const EditorSectionList: React.FC<EditorSectionListProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-800">
-        <div className="flex items-center gap-2">
-          <Layers size={18} className="text-sky-400" />
-          <h3 className="text-base font-bold text-slate-100 font-display">
-            Article Sections &amp; Core Content
-          </h3>
+      {/* Dossier Structure Header Banner */}
+      <div className="bg-[#f0f4f9] border border-[#3366cc]/40 rounded-sm p-4 shadow-2xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-[#3366cc]/20">
+          <div className="flex items-center gap-2">
+            <Layers size={18} className="text-[#3366cc]" />
+            <h3 className="text-base font-bold text-[#101418] font-serif">
+              Standardized Investigative Dossier Structure
+            </h3>
+          </div>
+          <span className="text-[11px] font-mono font-semibold text-[#3366cc] bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-full self-start sm:self-auto">
+            Mandatory 8 Dossier Sections + References
+          </span>
         </div>
 
-        <button
-          type="button"
-          onClick={handleAddSection}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 hover:text-blue-200 border border-blue-500/40 rounded-sm text-xs font-semibold transition-all cursor-pointer shadow-sm self-start sm:self-auto"
-        >
-          <Plus size={14} />
-          <span>Add New Section</span>
-        </button>
+        <p className="text-xs text-[#54595d] mt-2 font-sans leading-relaxed">
+          Every dossier in TheLegendsWiki follows an identical, evidence-based 8-part editorial structure across all five categories. Complete all required sections below with verified facts and source citations.
+        </p>
       </div>
 
-      <div className="space-y-5">
-        {sections.map((sec, idx) => {
+      {/* Render 8 Mandatory Dossier Sections */}
+      <div className="space-y-6">
+        {MANDATORY_DOSSIER_SECTIONS.map((def, idx) => {
+          const sec = sections[idx] || {
+            id: def.id,
+            title: def.title,
+            content: [''],
+            bulletPoints: [],
+          };
           const rawText = (sec.content || []).join('\n\n');
+          const charCount = rawText.trim().length;
+          const figure = sec.figure;
+          const figAltCheck = figure ? validateImageAlt(figure.alt) : { isValid: true };
+          const sectionError = errors[def.id] || (errors[`sections.${idx}`]);
+          const categoryHint = def.categoryGuidance?.[categorySlug];
 
           return (
             <div
-              key={sec.id || idx}
-              className="bg-[#0a0f1d] border border-slate-800 rounded-sm p-4 sm:p-5 space-y-3.5 shadow-sm transition-colors hover:border-slate-700"
+              key={def.id}
+              id={`section-editor-${def.id}`}
+              className={`bg-[#ffffff] border rounded-sm p-4 sm:p-5 space-y-3.5 shadow-xs transition-colors ${
+                sectionError
+                  ? 'border-red-400 ring-1 ring-red-300'
+                  : 'border-[#a2a9b1] hover:border-[#3366cc]'
+              }`}
             >
-              {/* Section Header Controls */}
-              <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-800/80">
-                <div className="flex items-center gap-2 flex-1">
-                  <span className="text-xs font-mono font-bold text-sky-400 bg-sky-950/80 border border-sky-800/60 px-2 py-0.5 rounded-sm shrink-0">
-                    § {idx + 1}
+              {/* Section Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-[#eaecf0]">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <span className="text-xs font-mono font-bold text-white bg-[#3366cc] px-2.5 py-0.5 rounded-xs shrink-0">
+                    § {def.order}
                   </span>
-                  <input
-                    type="text"
-                    value={sec.title}
-                    onChange={(e) => handleTitleChange(idx, e.target.value)}
-                    placeholder="Section Title (e.g. Historical Foundation)"
-                    className="flex-1 bg-[#080c14] border border-slate-800 focus:border-blue-500 rounded-sm px-3 py-1 text-sm font-display font-semibold text-slate-100 placeholder-slate-600 focus:outline-none"
-                  />
+                  <h4 className="font-serif text-base font-bold text-[#101418]">
+                    {def.title}
+                  </h4>
+                  <span className="text-[10px] font-mono uppercase bg-amber-50 text-amber-800 border border-amber-300 px-1.5 py-0.2 rounded-xs font-semibold">
+                    Required
+                  </span>
                 </div>
 
-                {/* Section Reorder & Delete */}
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => handleMoveSection(idx, 'up')}
-                    disabled={idx === 0}
-                    title="Move section up"
-                    className="p-1 text-slate-500 hover:text-slate-200 disabled:opacity-30 cursor-pointer"
-                  >
-                    <ChevronUp size={15} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleMoveSection(idx, 'down')}
-                    disabled={idx === sections.length - 1}
-                    title="Move section down"
-                    className="p-1 text-slate-500 hover:text-slate-200 disabled:opacity-30 cursor-pointer"
-                  >
-                    <ChevronDown size={15} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveSection(idx)}
-                    title="Delete section"
-                    className="p-1 text-slate-500 hover:text-red-400 cursor-pointer ml-1"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                <div className="flex items-center gap-2 text-xs text-[#72777d] font-mono">
+                  {charCount > 0 ? (
+                    <span className="text-emerald-700 flex items-center gap-1 font-sans text-xs">
+                      <CheckCircle2 size={13} /> {charCount} chars
+                    </span>
+                  ) : (
+                    <span className="text-amber-700 font-sans text-xs">Pending content</span>
+                  )}
                 </div>
               </div>
 
-              {/* Formatting Toolbar */}
+              {/* Editorial Guidance & Helper Text */}
+              <div className="bg-[#f8f9fa] border-l-2 border-[#3366cc] p-2.5 text-xs text-[#202122] rounded-r-xs space-y-1">
+                <p className="text-[#374151] font-sans leading-relaxed">
+                  <strong className="font-semibold text-[#111827]">Editorial Goal:</strong> {def.helperText}
+                </p>
+                {categoryHint && (
+                  <p className="text-[#3366cc] font-sans text-[11px] leading-snug">
+                    <span className="font-semibold">Context ({categoryName}):</span> {categoryHint}
+                  </p>
+                )}
+              </div>
+
+              {/* Section Validation Error Banner if empty */}
+              {sectionError && (
+                <div className="p-2.5 bg-red-50 border border-red-200 rounded-xs text-red-700 text-xs flex items-center gap-2">
+                  <AlertCircle size={14} className="shrink-0 text-red-600" />
+                  <span>{sectionError}</span>
+                </div>
+              )}
+
+              {/* Formatting & Citation Toolbar */}
               <EditorToolbar
+                citations={citations}
                 onInsertMarkdown={(pre, suf, ph) =>
                   handleInsertMarkdownToSection(idx, pre, suf, ph)
+                }
+                onOpenAiWritingTools={
+                  onOpenAiWritingTools ? () => onOpenAiWritingTools(idx) : undefined
                 }
               />
 
               {/* Section Paragraph Textarea */}
               <div>
-                <label className="block text-[10px] font-mono uppercase text-slate-400 font-bold mb-1 flex items-center justify-between">
-                  <span>Section Paragraphs &amp; Body</span>
-                  <span className="text-slate-500 font-normal">
-                    Separate paragraphs with a blank line
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] font-mono uppercase text-[#54595d] font-bold">
+                    Dossier Text &bull; Section {def.order}
+                  </label>
+                  <span className="text-[11px] text-[#72777d] font-sans">
+                    Separate paragraphs with empty line &bull; Use <code className="font-mono text-[#3366cc]">[1]</code> for citations
                   </span>
-                </label>
+                </div>
                 <textarea
                   value={rawText}
                   onChange={(e) => handleContentChange(idx, e.target.value)}
-                  rows={6}
-                  placeholder="Write clear, encyclopedic content for this section. Support Markdown headings, quotes, bold, italics, and lists..."
-                  className="w-full bg-[#080c14] border border-slate-800 focus:border-blue-500 rounded-sm p-3 text-xs sm:text-sm text-slate-200 placeholder-slate-600 focus:outline-none leading-relaxed transition-all font-sans"
+                  rows={5}
+                  placeholder={def.placeholder}
+                  className={`w-full bg-[#ffffff] border rounded-sm p-3 text-xs sm:text-sm text-[#202122] placeholder-[#72777d] focus:outline-none leading-relaxed transition-all font-sans ${
+                    sectionError ? 'border-red-400 focus:border-red-500' : 'border-[#a2a9b1] focus:border-[#3366cc]'
+                  }`}
                 />
               </div>
 
-              {/* Section Key Takeaways / Bullet Points List */}
-              <div className="space-y-2 pt-1 border-t border-slate-800/60">
+              {/* Section Figure / Image Management */}
+              <div className="pt-2 border-t border-[#eaecf0] space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono uppercase text-slate-400 font-bold flex items-center gap-1">
-                    <ListPlus size={12} className="text-sky-400" />
-                    <span>Bullet Points / Key Takeaways</span>
+                  <span className="text-[10px] font-mono uppercase text-[#54595d] font-bold flex items-center gap-1">
+                    <ImageIcon size={12} className="text-[#3366cc]" />
+                    <span>Section Illustration / Archival Figure</span>
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveFigureSectionIndex(idx)}
+                    className="text-[11px] text-[#3366cc] hover:underline font-semibold font-mono cursor-pointer flex items-center gap-1"
+                  >
+                    {figure ? <Edit2 size={11} /> : <Plus size={11} />}
+                    <span>{figure ? 'Change Section Figure' : '+ Attach Section Figure'}</span>
+                  </button>
+                </div>
+
+                {figure && (
+                  <div className="p-3 bg-[#f8f9fa] border border-[#eaecf0] rounded-sm space-y-2.5">
+                    <div className="flex flex-col sm:flex-row gap-3 items-start">
+                      {/* Image Thumbnail Preview */}
+                      <div className="w-24 h-18 bg-[#ffffff] border border-[#cbd5e1] rounded-xs overflow-hidden shrink-0 flex items-center justify-center">
+                        <img
+                          src={figure.url}
+                          alt={figure.alt || 'Section illustration'}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+
+                      <div className="flex-1 min-w-0 space-y-2 w-full">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-mono text-[#3366cc] bg-blue-50 border border-blue-200 px-1.5 py-0.2 rounded-xs">
+                            Alignment: {figure.align?.toUpperCase() || 'RIGHT'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFigure(idx)}
+                            className="text-[10px] font-mono text-red-600 hover:underline flex items-center gap-1 cursor-pointer"
+                          >
+                            <Trash2 size={11} /> Remove Figure
+                          </button>
+                        </div>
+
+                        {/* Alt text */}
+                        <div>
+                          <label className="block text-[10px] font-mono uppercase text-[#54595d] font-bold mb-0.5">
+                            Alt Text (Accessibility) <strong className="text-red-500">*</strong>
+                          </label>
+                          <input
+                            type="text"
+                            value={figure.alt || ''}
+                            onChange={(e) => handleUpdateFigureField(idx, 'alt', e.target.value)}
+                            placeholder="Descriptive text for accessibility..."
+                            className="w-full bg-[#ffffff] border border-[#a2a9b1] focus:border-[#3366cc] rounded-sm px-2 py-1 text-xs text-[#202122] focus:outline-none"
+                          />
+                          {!figAltCheck.isValid && (
+                            <p className="text-[9px] text-amber-700 mt-0.5 flex items-center gap-1 font-sans">
+                              <Info size={10} /> {figAltCheck.message}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Caption, Credit & Alignment */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div className="sm:col-span-1">
+                            <label className="block text-[9px] font-mono uppercase text-[#54595d] font-bold mb-0.5">
+                              Caption
+                            </label>
+                            <input
+                              type="text"
+                              value={figure.caption || ''}
+                              onChange={(e) => handleUpdateFigureField(idx, 'caption', e.target.value)}
+                              placeholder="Visible caption..."
+                              className="w-full bg-[#ffffff] border border-[#a2a9b1] focus:border-[#3366cc] rounded-sm px-2 py-1 text-xs text-[#202122] focus:outline-none"
+                            />
+                          </div>
+
+                          <div className="sm:col-span-1">
+                            <label className="block text-[9px] font-mono uppercase text-[#54595d] font-bold mb-0.5">
+                              Credit
+                            </label>
+                            <input
+                              type="text"
+                              value={figure.credit || ''}
+                              onChange={(e) => handleUpdateFigureField(idx, 'credit', e.target.value)}
+                              placeholder="Source archive..."
+                              className="w-full bg-[#ffffff] border border-[#a2a9b1] focus:border-[#3366cc] rounded-sm px-2 py-1 text-xs text-[#202122] focus:outline-none"
+                            />
+                          </div>
+
+                          <div className="sm:col-span-1">
+                            <label className="block text-[9px] font-mono uppercase text-[#54595d] font-bold mb-0.5">
+                              Alignment
+                            </label>
+                            <select
+                              value={figure.align || 'right'}
+                              onChange={(e) => handleUpdateFigureField(idx, 'align', e.target.value)}
+                              className="w-full bg-[#ffffff] border border-[#a2a9b1] focus:border-[#3366cc] rounded-sm px-2 py-1 text-xs text-[#202122] focus:outline-none"
+                            >
+                              <option value="right">Right Float</option>
+                              <option value="left">Left Float</option>
+                              <option value="center">Centered</option>
+                              <option value="full">Full Width</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Section Key Takeaways / Bullet Points List */}
+              <div className="space-y-2 pt-2 border-t border-[#eaecf0]">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono uppercase text-[#54595d] font-bold flex items-center gap-1">
+                    <ListPlus size={12} className="text-[#3366cc]" />
+                    <span>Bullet Points / Key Findings</span>
                   </span>
                   <button
                     type="button"
                     onClick={() => handleAddBulletPoint(idx)}
-                    className="text-[11px] text-blue-400 hover:text-blue-300 font-semibold cursor-pointer"
+                    className="text-[11px] text-[#3366cc] hover:underline font-semibold cursor-pointer"
                   >
                     + Add bullet point
                   </button>
@@ -261,18 +408,19 @@ export const EditorSectionList: React.FC<EditorSectionListProps> = ({
                   <div className="space-y-1.5">
                     {sec.bulletPoints.map((bp, bIdx) => (
                       <div key={bIdx} className="flex items-center gap-2">
-                        <span className="text-sky-400 text-xs font-mono">&bull;</span>
+                        <span className="text-[#3366cc] text-xs font-mono">&bull;</span>
                         <input
                           type="text"
                           value={bp}
                           onChange={(e) => handleUpdateBulletPoint(idx, bIdx, e.target.value)}
-                          placeholder="Highlight or key fact..."
-                          className="flex-1 bg-[#080c14] border border-slate-800 focus:border-blue-500 rounded-sm px-2.5 py-1 text-xs text-slate-200 focus:outline-none"
+                          placeholder="Highlight key evidentiary finding or record..."
+                          className="flex-1 bg-[#ffffff] border border-[#a2a9b1] focus:border-[#3366cc] rounded-sm px-2.5 py-1 text-xs text-[#202122] focus:outline-none"
                         />
                         <button
                           type="button"
                           onClick={() => handleRemoveBulletPoint(idx, bIdx)}
-                          className="text-slate-500 hover:text-red-400 p-1"
+                          className="text-[#72777d] hover:text-red-600 p-1 cursor-pointer"
+                          aria-label="Remove bullet point"
                         >
                           <Trash2 size={13} />
                         </button>
@@ -285,6 +433,22 @@ export const EditorSectionList: React.FC<EditorSectionListProps> = ({
           );
         })}
       </div>
+
+      {/* Image Uploader Modal for Section Figures */}
+      {activeFigureSectionIndex !== null && (
+        <ImageUploaderModal
+          isOpen={activeFigureSectionIndex !== null}
+          onClose={() => setActiveFigureSectionIndex(null)}
+          onSelect={(figData) => {
+            handleAttachFigure(activeFigureSectionIndex, figData);
+          }}
+          initialData={sections[activeFigureSectionIndex]?.figure}
+          title={`Attach Figure to Section §${activeFigureSectionIndex + 1}: ${
+            sections[activeFigureSectionIndex]?.title || MANDATORY_DOSSIER_SECTIONS[activeFigureSectionIndex]?.title || 'Section'
+          }`}
+          allowAlignment={true}
+        />
+      )}
     </div>
   );
 };

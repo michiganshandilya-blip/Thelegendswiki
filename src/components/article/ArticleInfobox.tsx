@@ -1,5 +1,6 @@
 import React from 'react';
 import { ArticleInfobox as InfoboxType } from '../../types';
+import { OptimizedImage } from '../common/OptimizedImage';
 import { Info } from 'lucide-react';
 
 interface ArticleInfoboxProps {
@@ -14,19 +15,19 @@ export const ArticleInfobox: React.FC<ArticleInfoboxProps> = ({
   const getTypeBadgeColor = (type?: string) => {
     switch (type) {
       case 'person':
-        return 'bg-sky-950/80 text-sky-300 border-sky-800/60';
+        return 'bg-blue-50 text-[#3366cc] border-blue-200';
       case 'place':
-        return 'bg-emerald-950/80 text-emerald-300 border-emerald-800/60';
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
       case 'science':
-        return 'bg-purple-950/80 text-purple-300 border-purple-800/60';
+        return 'bg-purple-50 text-purple-700 border-purple-200';
       case 'event':
-        return 'bg-amber-950/80 text-amber-300 border-amber-800/60';
+        return 'bg-amber-50 text-amber-800 border-amber-200';
       case 'technology':
-        return 'bg-cyan-950/80 text-cyan-300 border-cyan-800/60';
+        return 'bg-cyan-50 text-cyan-800 border-cyan-200';
       case 'organization':
-        return 'bg-indigo-950/80 text-indigo-300 border-indigo-800/60';
+        return 'bg-indigo-50 text-indigo-700 border-indigo-200';
       default:
-        return 'bg-[#141c2e] text-slate-300 border-[#1e293b]';
+        return 'bg-[#f8f9fa] text-[#54595d] border-[#eaecf0]';
     }
   };
 
@@ -34,24 +35,24 @@ export const ArticleInfobox: React.FC<ArticleInfoboxProps> = ({
     <aside
       id="article-infobox-container"
       aria-label={`${infobox.title} Quick Reference Facts`}
-      className={`w-full bg-[#0e1422] border border-[#1e293b] rounded-sm overflow-hidden text-xs font-sans ${className}`}
+      className={`w-full bg-[#f8f9fa] border border-[#a2a9b1] rounded-sm overflow-hidden text-xs font-sans shadow-xs ${className}`}
     >
       {/* Infobox Header */}
-      <div className="bg-[#141c2e] border-b border-[#1e293b] p-3 text-center">
+      <div className="bg-[#eaecf0] border-b border-[#a2a9b1] p-2.5 text-center">
         {infobox.articleType && (
           <span
-            className={`inline-block text-[9px] uppercase font-bold tracking-widest px-2 py-0.5 rounded-sm border mb-1.5 ${getTypeBadgeColor(
+            className={`inline-block text-[9px] uppercase font-bold tracking-widest px-2 py-0.5 rounded-sm border mb-1 ${getTypeBadgeColor(
               infobox.articleType
             )}`}
           >
             {infobox.articleType}
           </span>
         )}
-        <h2 className="font-display text-base font-bold text-slate-100 leading-snug">
+        <h2 className="font-serif text-base font-bold text-[#101418] leading-snug">
           {infobox.title}
         </h2>
         {infobox.subtitle && (
-          <p className="text-[11px] text-slate-400 font-medium italic mt-0.5">
+          <p className="text-[11px] text-[#54595d] font-medium italic mt-0.5">
             {infobox.subtitle}
           </p>
         )}
@@ -59,21 +60,20 @@ export const ArticleInfobox: React.FC<ArticleInfoboxProps> = ({
 
       {/* Infobox Media / Image with Caption & Credit */}
       {infobox.image && (
-        <figure className="p-3 pb-2 bg-[#0e1422] border-b border-[#1e293b] text-center m-0">
-          <div className="bg-[#141c2e] border border-[#1e293b] rounded-sm overflow-hidden flex items-center justify-center max-h-56">
-            <img
+        <figure className="p-2.5 pb-2 bg-[#ffffff] border-b border-[#eaecf0] text-center m-0">
+          <div className="bg-[#f8f9fa] border border-[#eaecf0] rounded-xs overflow-hidden flex items-center justify-center max-h-56">
+            <OptimizedImage
               src={infobox.image}
               alt={infobox.imageAlt || infobox.title}
-              loading="lazy"
-              referrerPolicy="no-referrer"
-              className="w-full h-auto object-cover max-h-56 opacity-90"
+              containerClassName="w-full max-h-56"
+              className="w-full h-auto object-cover max-h-56"
             />
           </div>
           {(infobox.imageCaption || infobox.imageCredit) && (
-            <figcaption className="mt-2 text-[11px] text-slate-400 leading-tight">
+            <figcaption className="mt-1.5 text-[11px] text-[#54595d] leading-tight">
               {infobox.imageCaption && <span>{infobox.imageCaption}</span>}
               {infobox.imageCredit && (
-                <span className="block text-[10px] text-slate-500 mt-0.5 font-mono">
+                <span className="block text-[10px] text-[#72777d] mt-0.5 font-mono">
                   Source: {infobox.imageCredit}
                 </span>
               )}
@@ -83,21 +83,21 @@ export const ArticleInfobox: React.FC<ArticleInfoboxProps> = ({
       )}
 
       {/* Dynamic Key-Value Details */}
-      <div className="divide-y divide-[#1e293b]">
-        <div className="bg-[#141c2e]/60 px-3 py-1.5 text-[10px] uppercase font-bold tracking-wider text-slate-400 flex items-center gap-1">
-          <Info size={11} className="text-sky-400" />
+      <div className="divide-y divide-[#eaecf0] bg-[#ffffff]">
+        <div className="bg-[#f8f9fa] px-3 py-1.5 text-[10px] uppercase font-bold tracking-wider text-[#54595d] flex items-center gap-1">
+          <Info size={11} className="text-[#3366cc]" />
           <span>Quick Overview</span>
         </div>
 
         {infobox.details.map((detail, idx) => (
           <div
             key={idx}
-            className="flex flex-col sm:flex-row py-2 px-3 hover:bg-[#141c2e] transition-colors gap-1 sm:gap-2 leading-relaxed"
+            className="flex flex-col sm:flex-row py-1.5 px-3 hover:bg-[#f8f9fa] transition-colors gap-1 sm:gap-2 leading-relaxed"
           >
-            <div className="sm:w-1/3 font-semibold text-slate-400 shrink-0 text-[11px]">
+            <div className="sm:w-1/3 font-semibold text-[#54595d] shrink-0 text-[11px]">
               {detail.label}
             </div>
-            <div className="sm:w-2/3 text-slate-200 text-[11px] break-words">
+            <div className="sm:w-2/3 text-[#101418] text-[11px] break-words">
               {detail.value}
             </div>
           </div>
@@ -105,10 +105,9 @@ export const ArticleInfobox: React.FC<ArticleInfoboxProps> = ({
       </div>
 
       {/* Bottom Footer Note */}
-      <div className="p-2 bg-[#141c2e]/40 border-t border-[#1e293b] text-[10px] text-slate-500 text-center font-mono">
+      <div className="p-2 bg-[#f8f9fa] border-t border-[#eaecf0] text-[10px] text-[#72777d] text-center font-mono">
         TheLegendsWiki Structured Fact Sheet
       </div>
     </aside>
   );
 };
-

@@ -3,6 +3,9 @@ import { useAuth } from '../context/AuthContext';
 import { useRouter } from '../context/RouterContext';
 import { Button } from '../components/common/Button';
 import { Breadcrumbs } from '../components/common/Breadcrumbs';
+import { SocialAuthProviders } from '../components/auth/SocialAuthProviders';
+import { TurnstileWidget } from '../components/common/TurnstileWidget';
+import { verifyTurnstileTokenOnServer } from '../services/turnstileService';
 import {
   LogIn,
   Mail,
@@ -11,10 +14,7 @@ import {
   EyeOff,
   AlertCircle,
   CheckCircle2,
-  ExternalLink,
-  Shield,
   ArrowLeft,
-  Sparkles,
 } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
@@ -28,22 +28,29 @@ export const LoginPage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isProviderDisabled, setIsProviderDisabled] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
+  const [failedAttempts, setFailedAttempts] = useState<number>(0);
+  const [requiresCaptcha, setRequiresCaptcha] = useState<boolean>(false);
+  const [turnstileToken, setTurnstileToken] = useState<string>('');
+  const [turnstileResetKey, setTurnstileResetKey] = useState<number>(0);
+
+  const urlParams = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+  const resetSuccess = urlParams.get('reset') === 'success';
 
   // If already authenticated, show status
   if (isAuthenticated && currentUser) {
     const username = userProfile?.username || 'scholar';
     return (
-      <div className="max-w-md mx-auto my-12 bg-[#0e1424] border border-slate-800 rounded-sm p-6 sm:p-8 text-center space-y-6 shadow-2xl">
-        <div className="w-12 h-12 rounded-sm bg-blue-950/80 border border-blue-500/40 mx-auto flex items-center justify-center text-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.3)]">
+      <div className="max-w-md mx-auto my-12 bg-[#ffffff] border border-[#a2a9b1] rounded-sm p-6 sm:p-8 text-center space-y-6 shadow-xs">
+        <div className="w-12 h-12 rounded-sm bg-blue-50 border border-blue-200 mx-auto flex items-center justify-center text-[#3366cc]">
           <CheckCircle2 size={24} />
         </div>
         <div className="space-y-1">
-          <h2 className="text-xl font-bold text-slate-100 font-display">
+          <h2 className="text-xl font-bold text-[#101418] font-serif">
             Already Signed In
           </h2>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-[#54595d]">
             You are actively signed in as{' '}
-            <strong className="text-blue-400">@{username}</strong> ({currentUser.email}).
+            <strong className="text-[#3366cc]">@{username}</strong> ({currentUser.email || currentUser.phoneNumber || 'Authenticated'}).
           </p>
         </div>
         <div className="flex flex-col gap-2 pt-2">
@@ -55,11 +62,11 @@ export const LoginPage: React.FC = () => {
             Go to Your Profile
           </Button>
           <Button
-            variant="outline"
+            variant="secondary"
             size="md"
             onClick={() => navigate('/')}
           >
-            Explore Main Registry
+            Explore Main Page
           </Button>
         </div>
       </div>
@@ -89,11 +96,39 @@ export const LoginPage: React.FC = () => {
 
     if (!validate()) return;
 
-    setLoading(true);
+    // If multiple failed attempts occurred, require and verify Turnstile token
+    if (requiresCaptcha) {
+      if (!turnstileToken) {
+        setErrorMessage('Please complete the security verification challenge before continuing.');
+        return;
+      }
+
+      setLoading(true);
+      const verifyResult = await verifyTurnstileTokenOnServer(turnstileToken, 'login');
+      if (!verifyResult.success) {
+        setErrorMessage(verifyResult.error || 'Security verification failed. Please try again.');
+        setTurnstileToken('');
+        setTurnstileResetKey((prev) => prev + 1);
+        setLoading(false);
+        return;
+      }
+    } else {
+      setLoading(true);
+    }
+
     try {
       const result = await login(email.trim(), password);
       if (!result.success) {
         setErrorMessage(result.error || 'Failed to sign in.');
+        const nextAttempts = failedAttempts + 1;
+        setFailedAttempts(nextAttempts);
+        if (nextAttempts >= 2) {
+          setRequiresCaptcha(true);
+        }
+        if (requiresCaptcha) {
+          setTurnstileToken('');
+          setTurnstileResetKey((prev) => prev + 1);
+        }
         if (result.isProviderDisabled) {
           setIsProviderDisabled(true);
         }
@@ -102,6 +137,15 @@ export const LoginPage: React.FC = () => {
       }
     } catch (err: any) {
       setErrorMessage(err?.message || 'An unexpected error occurred during login.');
+      const nextAttempts = failedAttempts + 1;
+      setFailedAttempts(nextAttempts);
+      if (nextAttempts >= 2) {
+        setRequiresCaptcha(true);
+      }
+      if (requiresCaptcha) {
+        setTurnstileToken('');
+        setTurnstileResetKey((prev) => prev + 1);
+      }
     } finally {
       setLoading(false);
     }
@@ -111,22 +155,19 @@ export const LoginPage: React.FC = () => {
     <div className="space-y-6 max-w-lg mx-auto py-4">
       <Breadcrumbs items={[{ label: 'Contributor Authentication' }]} />
 
-      <div className="bg-[#0e1424] border border-slate-800 rounded-sm p-6 sm:p-8 shadow-2xl relative overflow-hidden">
-        {/* Glow accent */}
-        <div className="absolute top-0 right-0 w-64 h-64 bg-radial from-blue-600/10 via-transparent to-transparent pointer-events-none" />
-
+      <div className="bg-[#ffffff] border border-[#a2a9b1] rounded-sm p-6 sm:p-8 shadow-xs relative">
         {/* Card Header */}
-        <div className="flex items-center gap-3.5 border-b border-slate-800 pb-5 mb-6">
-          <div className="w-9 h-9 rounded-sm bg-gradient-to-br from-blue-600 to-indigo-800 border border-blue-400/40 flex items-center justify-center text-white font-legend font-bold text-sm shadow-[0_0_12px_rgba(59,130,246,0.4)]">
+        <div className="flex items-center gap-3.5 border-b border-[#eaecf0] pb-4 mb-6">
+          <div className="w-9 h-9 rounded-sm bg-[#3366cc] text-white flex items-center justify-center font-bold text-sm">
             <LogIn size={18} />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-blue-400 bg-blue-950/60 px-2 py-0.5 rounded-sm border border-blue-500/30">
-                Archival Codex
+              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#3366cc] bg-blue-50 px-2 py-0.5 rounded-sm border border-blue-200">
+                Authentication
               </span>
             </div>
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-100 font-display">
+            <h1 className="text-xl sm:text-2xl font-bold text-[#101418] font-serif">
               Contributor Log In
             </h1>
           </div>
@@ -134,16 +175,29 @@ export const LoginPage: React.FC = () => {
 
         {/* Firebase Email/Password Disabled Notice Alert */}
         {isProviderDisabled && (
-          <div className="mb-6 p-4 bg-amber-950/40 border border-amber-500/40 rounded-sm text-xs text-amber-200 space-y-2">
-            <div className="flex items-center gap-2 font-bold text-amber-300">
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-300 rounded-sm text-xs text-amber-900 space-y-2">
+            <div className="flex items-center gap-2 font-bold text-amber-800">
               <AlertCircle size={16} className="shrink-0" />
-              <span>Firebase Email/Password Authentication Required</span>
+              <span>Firebase Authentication Method Configuration</span>
             </div>
             <p className="leading-relaxed">
-              Email/Password sign-in method must be enabled in your Firebase console.
+              This sign-in method must be enabled in your Firebase console.
             </p>
-            <div className="bg-[#080c14]/80 p-2.5 rounded-sm font-mono text-[11px] border border-amber-500/20 text-amber-100">
-              Firebase Console → Authentication → Sign-in method → Email/Password → Enable
+            <div className="bg-white p-2.5 rounded-sm font-mono text-[11px] border border-amber-200 text-amber-800">
+              Firebase Console &rarr; Authentication &rarr; Sign-in method &rarr; Enable
+            </div>
+          </div>
+        )}
+
+        {/* Password Reset Success Alert */}
+        {resetSuccess && !errorMessage && (
+          <div
+            role="status"
+            className="mb-6 p-3.5 bg-[#d5fdf4] border border-[#20c997] rounded-sm text-xs text-[#0f5132] flex items-start gap-2.5 shadow-xs"
+          >
+            <CheckCircle2 size={16} className="text-[#0f5132] shrink-0 mt-0.5" />
+            <div className="flex-1 leading-relaxed">
+              <strong className="font-semibold">Password updated successfully.</strong> Please sign in with your new password credentials.
             </div>
           </div>
         )}
@@ -152,25 +206,34 @@ export const LoginPage: React.FC = () => {
         {errorMessage && !isProviderDisabled && (
           <div
             role="alert"
-            className="mb-6 p-3.5 bg-red-950/40 border border-red-500/40 rounded-sm text-xs text-red-200 flex items-start gap-2.5"
+            className="mb-6 p-3.5 bg-red-50 border border-red-200 rounded-sm text-xs text-red-700 flex items-start gap-2.5"
           >
-            <AlertCircle size={16} className="text-red-400 shrink-0 mt-0.5" />
+            <AlertCircle size={16} className="text-red-600 shrink-0 mt-0.5" />
             <div className="flex-1 leading-relaxed">{errorMessage}</div>
           </div>
         )}
 
-        {/* Form */}
+        {/* Social & Phone Auth Providers */}
+        <div className="mb-4">
+          <SocialAuthProviders 
+            disabled={loading}
+            onSuccess={() => navigate('/')}
+            onError={(msg) => setErrorMessage(msg)}
+          />
+        </div>
+
+        {/* Email/Password Form */}
         <form onSubmit={handleSubmit} noValidate className="space-y-4">
           {/* Email Field */}
           <div>
             <label
               htmlFor="login-email"
-              className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5"
+              className="block text-xs font-semibold text-[#54595d] uppercase tracking-wider mb-1.5 font-sans"
             >
               Account Email
             </label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#72777d]">
                 <Mail size={15} />
               </div>
               <input
@@ -187,15 +250,15 @@ export const LoginPage: React.FC = () => {
                   }
                 }}
                 placeholder="scholar@thelegendswiki.org"
-                className={`w-full text-xs pl-9 pr-3 py-2.5 border rounded-sm bg-[#080c14] text-slate-100 placeholder:text-slate-600 focus:outline-none transition-all ${
+                className={`w-full text-xs pl-9 pr-3 py-2.5 border rounded-sm bg-[#ffffff] text-[#202122] placeholder:text-[#72777d] focus:outline-none transition-all ${
                   fieldErrors.email
-                    ? 'border-red-500 ring-1 ring-red-500/50'
-                    : 'border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
+                    ? 'border-red-500 ring-1 ring-red-500'
+                    : 'border-[#a2a9b1] focus:border-[#3366cc] focus:ring-1 focus:ring-[#3366cc]'
                 }`}
               />
             </div>
             {fieldErrors.email && (
-              <p className="text-[11px] text-red-400 mt-1 font-medium">{fieldErrors.email}</p>
+              <p className="text-[11px] text-red-600 mt-1 font-medium">{fieldErrors.email}</p>
             )}
           </div>
 
@@ -204,13 +267,20 @@ export const LoginPage: React.FC = () => {
             <div className="flex items-center justify-between mb-1.5">
               <label
                 htmlFor="login-password"
-                className="block text-xs font-semibold text-slate-300 uppercase tracking-wider"
+                className="block text-xs font-semibold text-[#54595d] uppercase tracking-wider font-sans"
               >
                 Password
               </label>
+              <button
+                type="button"
+                onClick={() => navigate('/forgot-password')}
+                className="text-[11px] text-[#3366cc] hover:underline cursor-pointer font-sans transition-colors"
+              >
+                Forgot Password?
+              </button>
             </div>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#72777d]">
                 <Lock size={15} />
               </div>
               <input
@@ -227,25 +297,40 @@ export const LoginPage: React.FC = () => {
                   }
                 }}
                 placeholder="••••••••••••"
-                className={`w-full text-xs pl-9 pr-10 py-2.5 border rounded-sm bg-[#080c14] text-slate-100 placeholder:text-slate-600 focus:outline-none transition-all ${
+                className={`w-full text-xs pl-9 pr-10 py-2.5 border rounded-sm bg-[#ffffff] text-[#202122] placeholder:text-[#72777d] focus:outline-none transition-all ${
                   fieldErrors.password
-                    ? 'border-red-500 ring-1 ring-red-500/50'
-                    : 'border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
+                    ? 'border-red-500 ring-1 ring-red-500'
+                    : 'border-[#a2a9b1] focus:border-[#3366cc] focus:ring-1 focus:ring-[#3366cc]'
                 }`}
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-200 cursor-pointer"
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-[#72777d] hover:text-[#101418] cursor-pointer"
               >
                 {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
               </button>
             </div>
             {fieldErrors.password && (
-              <p className="text-[11px] text-red-400 mt-1 font-medium">{fieldErrors.password}</p>
+              <p className="text-[11px] text-red-600 mt-1 font-medium">{fieldErrors.password}</p>
             )}
           </div>
+
+          {/* Conditional Security Verification on repeated attempts */}
+          {requiresCaptcha && (
+            <TurnstileWidget
+              action="login_protection"
+              onVerify={(token) => {
+                setTurnstileToken(token);
+                setErrorMessage(null);
+              }}
+              onExpire={() => setTurnstileToken('')}
+              onError={() => setTurnstileToken('')}
+              resetKey={turnstileResetKey}
+              disabled={loading}
+            />
+          )}
 
           {/* Submit Button */}
           <div className="pt-2">
@@ -254,7 +339,7 @@ export const LoginPage: React.FC = () => {
               variant="primary"
               size="md"
               disabled={loading}
-              className="w-full justify-center shadow-[0_0_15px_rgba(37,99,235,0.4)]"
+              className="w-full justify-center"
             >
               {loading ? (
                 <span className="inline-flex items-center gap-2">
@@ -264,7 +349,7 @@ export const LoginPage: React.FC = () => {
               ) : (
                 <span className="inline-flex items-center gap-2">
                   <LogIn size={15} />
-                  Log In to Codex
+                  Log In
                 </span>
               )}
             </Button>
@@ -272,13 +357,13 @@ export const LoginPage: React.FC = () => {
         </form>
 
         {/* Footer info & link to signup */}
-        <div className="mt-6 pt-5 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
+        <div className="mt-6 pt-4 border-t border-[#eaecf0] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-[#54595d]">
           <div>
             Need an account?{' '}
             <button
               type="button"
               onClick={() => navigate('/signup')}
-              className="text-blue-400 hover:text-blue-300 font-semibold underline underline-offset-2 cursor-pointer ml-1"
+              className="text-[#3366cc] hover:underline font-semibold cursor-pointer ml-1"
             >
               Create Account
             </button>
@@ -286,9 +371,9 @@ export const LoginPage: React.FC = () => {
           <button
             type="button"
             onClick={() => navigate('/')}
-            className="text-slate-500 hover:text-slate-300 inline-flex items-center gap-1 transition-colors cursor-pointer"
+            className="text-[#72777d] hover:text-[#101418] inline-flex items-center gap-1 transition-colors cursor-pointer"
           >
-            <ArrowLeft size={12} /> Back to Archive
+            <ArrowLeft size={12} /> Back to Main Page
           </button>
         </div>
       </div>

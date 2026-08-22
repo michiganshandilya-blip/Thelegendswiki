@@ -1,5 +1,6 @@
 import React from 'react';
 import { useRouter } from '../../context/RouterContext';
+import { Sparkles, Key, Landmark, TrendingDown, FileCheck2, Compass } from 'lucide-react';
 
 interface NavigationProps {
   className?: string;
@@ -7,10 +8,12 @@ interface NavigationProps {
 }
 
 export const NAV_LINKS = [
-  { label: 'Main Page', path: '/' },
-  { label: 'Categories', path: '/category/all' },
-  { label: 'Random', path: '/random' },
-  { label: 'Contribute', path: '/create' },
+  { label: 'Behind the Curtains', path: '/', isPrimary: true },
+  { label: 'Behind Financial Markets', path: '/category/behind-financial-markets' },
+  { label: 'Behind Corporations', path: '/category/behind-corporations' },
+  { label: 'Behind History', path: '/category/behind-history' },
+  { label: 'Behind the Evidence', path: '/category/behind-the-evidence' },
+  { label: 'Behind the Mysteries', path: '/category/behind-the-mysteries' },
 ];
 
 export const Navigation: React.FC<NavigationProps> = ({ className = '', onLinkClick }) => {
@@ -27,7 +30,7 @@ export const Navigation: React.FC<NavigationProps> = ({ className = '', onLinkCl
   };
 
   return (
-    <nav className={`flex items-center gap-5 text-sm font-medium text-slate-400 ${className}`}>
+    <nav className={`flex items-center gap-1 sm:gap-2 text-xs font-medium text-[#54595d] ${className}`}>
       {NAV_LINKS.map((link) => {
         const isActive =
           link.path === '/'
@@ -39,10 +42,10 @@ export const Navigation: React.FC<NavigationProps> = ({ className = '', onLinkCl
             key={link.path}
             type="button"
             onClick={() => handleClick(link.path)}
-            className={`py-1 text-xs uppercase tracking-wider font-semibold transition-all cursor-pointer border-b-2 ${
+            className={`py-1 px-2.5 rounded-sm transition-all cursor-pointer text-xs font-serif ${
               isActive
-                ? 'text-blue-400 border-blue-500 shadow-[0_1px_12px_rgba(59,130,246,0.4)]'
-                : 'border-transparent text-slate-400 hover:text-slate-100 hover:border-slate-600'
+                ? 'text-amber-900 bg-amber-50/90 font-bold border border-amber-300/80 shadow-2xs'
+                : 'text-[#475569] hover:text-[#0f172a] hover:bg-slate-100/80 border border-transparent'
             }`}
           >
             {link.label}

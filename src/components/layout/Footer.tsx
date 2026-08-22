@@ -1,5 +1,6 @@
 import React from 'react';
 import { useRouter } from '../../context/RouterContext';
+import { ThemeToggle } from '../common/ThemeToggle';
 
 export const Footer: React.FC = () => {
   const { navigate } = useRouter();
@@ -7,52 +8,94 @@ export const Footer: React.FC = () => {
   return (
     <footer
       id="encyclopedia-footer"
-      className="border-t border-slate-800/80 bg-[#070a12] flex flex-col sm:flex-row items-center justify-between px-6 py-4 text-[11px] text-slate-400 shrink-0 gap-3 select-none"
+      role="contentinfo"
+      className="border-t border-[#eaecf0] bg-[#f8f9fa] flex flex-col items-center justify-between px-6 py-6 text-xs text-[#54595d] shrink-0 gap-4 select-none"
     >
-      <div className="flex flex-wrap items-center gap-4">
-        <button
-          type="button"
-          onClick={() => navigate('/about')}
-          className="hover:text-blue-400 hover:underline cursor-pointer transition-colors"
-        >
-          About TheLegendsWiki
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate('/create')}
-          className="hover:text-blue-400 hover:underline cursor-pointer transition-colors"
-        >
-          Community
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate('/contact')}
-          className="hover:text-blue-400 hover:underline cursor-pointer transition-colors"
-        >
-          Contact
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate('/privacy')}
-          className="hover:text-blue-400 hover:underline cursor-pointer transition-colors"
-        >
-          Privacy Policy
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate('/terms')}
-          className="hover:text-blue-400 hover:underline cursor-pointer transition-colors"
-        >
-          Terms of Knowledge
-        </button>
+      <div className="w-full max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3.5">
+          <button
+            type="button"
+            onClick={() => navigate('/about')}
+            className="text-[#3366cc] hover:underline cursor-pointer transition-colors text-xs"
+          >
+            About TheLegendsWiki
+          </button>
+          <span className="text-[#cbd5e1]">&bull;</span>
+          <button
+            type="button"
+            onClick={() => navigate('/create')}
+            className="text-[#3366cc] hover:underline cursor-pointer transition-colors text-xs"
+          >
+            Contributor Portal
+          </button>
+          <span className="text-[#cbd5e1]">&bull;</span>
+          <button
+            type="button"
+            onClick={() => navigate('/contact')}
+            className="text-[#3366cc] hover:underline cursor-pointer transition-colors text-xs"
+          >
+            Contact &amp; Errata
+          </button>
+          <span className="text-[#cbd5e1]">&bull;</span>
+          <button
+            type="button"
+            onClick={() => navigate('/sitemap')}
+            className="text-[#3366cc] hover:underline cursor-pointer transition-colors text-xs font-medium"
+          >
+            Sitemap &amp; Index
+          </button>
+          <span className="text-[#cbd5e1]">&bull;</span>
+          <button
+            type="button"
+            onClick={() => navigate('/privacy-policy')}
+            className="text-[#3366cc] hover:underline cursor-pointer transition-colors text-xs"
+          >
+            Privacy Policy
+          </button>
+          <span className="text-[#cbd5e1]">&bull;</span>
+          <button
+            type="button"
+            onClick={() => navigate('/terms')}
+            className="text-[#3366cc] hover:underline cursor-pointer transition-colors text-xs"
+          >
+            Terms of Use
+          </button>
+          <span className="text-[#cbd5e1]">&bull;</span>
+          <button
+            type="button"
+            onClick={() => navigate('/editorial-policy')}
+            className="text-[#3366cc] hover:underline cursor-pointer transition-colors text-xs"
+          >
+            Editorial Policy
+          </button>
+          <span className="text-[#cbd5e1]">&bull;</span>
+          <button
+            type="button"
+            onClick={() => navigate('/content-policy')}
+            className="text-[#3366cc] hover:underline cursor-pointer transition-colors text-xs"
+          >
+            Content Policy
+          </button>
+        </div>
+
+        <div className="flex items-center gap-3 text-[#72777d] text-xs">
+          <ThemeToggle variant="button" />
+          <span className="text-[#cbd5e1]">&bull;</span>
+          <span className="font-handwritten text-sm text-[#b45309]">
+            The stories behind the stories.
+          </span>
+          <span className="text-[#cbd5e1]">&bull;</span>
+          <span>&copy; {new Date().getFullYear()} TheLegendsWiki</span>
+        </div>
       </div>
 
-      <div className="flex items-center gap-4 text-slate-400 font-mono text-[10px]">
-        <span className="flex items-center gap-1.5 text-emerald-400">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
-          Archive Synchronized
+      <div className="w-full max-w-5xl mx-auto pt-3 border-t border-[#eaecf0] text-[11px] text-[#72777d] text-center sm:text-left flex flex-col sm:flex-row justify-between items-center gap-2">
+        <p>
+          TheLegendsWiki is an exclusive Behind-the-Curtains research codex documenting private decisions, development struggles, forensic money flows, and declassified archives.
+        </p>
+        <span className="font-mono text-[10px] text-[#54595d]">
+          Behind the Curtains Edition &bull; Evidence Classified
         </span>
-        <span>&copy; {new Date().getFullYear()} TheLegendsWiki Codex</span>
       </div>
     </footer>
   );

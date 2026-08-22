@@ -1,6 +1,6 @@
 {
   "name": "TheLegendsWiki",
-  "description": "Explore knowledge, people, places, history, science, technology, sports, culture and more.",
+  "description": "Behind The Curtains — Primary source archives, declassified dossiers, uncredited innovators, and historiographical forensic investigations.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -1,17 +1,19 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from '../context/RouterContext';
 import { useAuth } from '../context/AuthContext';
-import { Article, ArticleSection, ArticleCitation, ArticleInfobox } from '../types';
-import { getArticleBySlugOrId, updateArticle, isSlugAvailable } from '../services/articleService';
-import { validateArticle } from '../lib/validation';
+import { Article, ArticleSection, ArticleCitation, ArticleInfobox, ArticleStatus } from '../types';
+import { getArticleBySlugOrId, updateArticle } from '../services/articleService';
+import { createRevision } from '../services/revisionService';
+import { validateArticle, validateImageAlt } from '../lib/validation';
+import { mapToStandardDossierSections } from '../lib/dossierStructure';
 import { Breadcrumbs } from '../components/common/Breadcrumbs';
-import { LoadingState } from '../components/common/LoadingState';
 import { EditorMetadata } from '../components/editor/EditorMetadata';
 import { EditorSectionList } from '../components/editor/EditorSectionList';
 import { EditorInfobox } from '../components/editor/EditorInfobox';
 import { EditorReferences } from '../components/editor/EditorReferences';
 import { EditorPreviewModal } from '../components/editor/EditorPreviewModal';
 import { UnsavedChangesDialog } from '../components/editor/UnsavedChangesDialog';
+import { AiWritingToolsModal } from '../components/editor/AiWritingToolsModal';
 import {
   Save,
   Send,
@@ -19,10 +21,13 @@ import {
   CheckCircle,
   AlertCircle,
   Clock,
-  Sparkles,
   ShieldAlert,
   FileEdit,
   ArrowLeft,
+  AlertTriangle,
+  XCircle,
+  MessageSquare,
+  Sparkles,
 } from 'lucide-react';
 
 interface EditArticlePageProps {
@@ -31,13 +36,15 @@ interface EditArticlePageProps {
 
 export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
   const { navigate } = useRouter();
-  const { user, profile, isEditor, isAuthenticated, loading: authLoading } = useAuth();
+  const { user, profile, isEditor, isAdmin, isAuthenticated, loading: authLoading } = useAuth();
 
   const [initialLoading, setInitialLoading] = useState<boolean>(true);
   const [articleId, setArticleId] = useState<string>('');
-  const [existingStatus, setExistingStatus] = useState<'draft' | 'pending_review' | 'published' | 'archived'>('draft');
+  const [existingStatus, setExistingStatus] = useState<ArticleStatus>('draft');
   const [authorId, setAuthorId] = useState<string>('');
   const [authorName, setAuthorName] = useState<string>('');
+  const [moderationNotes, setModerationNotes] = useState<string | undefined>(undefined);
+  const [reviewedBy, setReviewedBy] = useState<string | undefined>(undefined);
 
   // Form State
   const [title, setTitle] = useState<string>('');
@@ -49,9 +56,16 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
   const [subCategory, setSubCategory] = useState<string | undefined>(undefined);
   const [tags, setTags] = useState<string[]>([]);
   const [featuredImage, setFeaturedImage] = useState<string>('');
+  const [imageCaption, setImageCaption] = useState<string>('');
+  const [imageCredit, setImageCredit] = useState<string>('');
+  const [imageAlt, setImageAlt] = useState<string>('');
+  const [isSensitive, setIsSensitive] = useState<boolean>(false);
+  const [contentSensitivity, setContentSensitivity] = useState<'normal' | 'sensitive'>('normal');
+  const [sensitivityRationale, setSensitivityRationale] = useState<string>('');
   const [infobox, setInfobox] = useState<ArticleInfobox | undefined>(undefined);
   const [citations, setCitations] = useState<ArticleCitation[]>([]);
   const [sections, setSections] = useState<ArticleSection[]>([]);
+  const [changeSummaryText, setChangeSummaryText] = useState<string>('');
 
   // UI & Workflow states
   const [saving, setSaving] = useState<boolean>(false);
@@ -63,6 +77,8 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
   const [permissionDenied, setPermissionDenied] = useState<boolean>(false);
   const [notFound, setNotFound] = useState<boolean>(false);
   const [previewOpen, setPreviewOpen] = useState<boolean>(false);
+  const [aiWritingModalOpen, setAiWritingModalOpen] = useState<boolean>(false);
+  const [activeSectionAiIndex, setActiveSectionAiIndex] = useState<number | null>(null);
   const [isDirty, setIsDirty] = useState<boolean>(false);
   const [showExitDialog, setShowExitDialog] = useState<boolean>(false);
   const [pendingExitUrl, setPendingExitUrl] = useState<string | null>(null);
@@ -90,8 +106,9 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
         }
 
         // Permission check: must be author OR editor/admin
-        const isAuthor = user?.uid && art.authorId === user.uid;
-        if (!isAuthor && !isEditor) {
+        const currentUserId = user?.uid || profile?.id;
+        const isAuthor = currentUserId && art.authorId === currentUserId;
+        if (!isAuthor && !isEditor && !isAdmin) {
           setPermissionDenied(true);
           return;
         }
@@ -99,8 +116,10 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
         // Populate fields
         setArticleId(art.id);
         setExistingStatus(art.status || 'draft');
-        setAuthorId(art.authorId || user?.uid || '');
+        setAuthorId(art.authorId || currentUserId || '');
         setAuthorName(art.author || 'Author');
+        setModerationNotes(art.moderationNotes);
+        setReviewedBy(art.reviewedBy);
         setTitle(art.title || '');
         setArticleSlug(art.slug || slug);
         setSummary(art.summary || '');
@@ -110,20 +129,15 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
         setSubCategory(art.subCategory || undefined);
         setTags(art.tags || []);
         setFeaturedImage(art.featuredImage || art.image || '');
+        setImageCaption(art.imageCaption || '');
+        setImageCredit(art.imageCredit || '');
+        setImageAlt(art.imageAlt || '');
+        setIsSensitive(Boolean(art.isSensitive || art.contentSensitivity === 'sensitive'));
+        setContentSensitivity(art.isSensitive || art.contentSensitivity === 'sensitive' ? 'sensitive' : 'normal');
+        setSensitivityRationale(art.sensitivityRationale || '');
         setInfobox(art.infobox || undefined);
         setCitations(art.citations || art.references || []);
-        setSections(
-          art.sections && art.sections.length > 0
-            ? art.sections
-            : [
-                {
-                  id: 'overview',
-                  title: 'Overview',
-                  content: [art.content || ''],
-                  bulletPoints: [],
-                },
-              ]
-        );
+        setSections(mapToStandardDossierSections(art.sections, art.content));
       } catch (err) {
         console.error('Error loading article for edit:', err);
         if (isMounted) setNotFound(true);
@@ -136,7 +150,7 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
     return () => {
       isMounted = false;
     };
-  }, [slug, user?.uid, isEditor, isAuthenticated, authLoading]);
+  }, [slug, user?.uid, profile?.id, isEditor, isAdmin, isAuthenticated, authLoading]);
 
   // Warn on tab close if dirty
   useEffect(() => {
@@ -155,11 +169,11 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
     setSaveStatus('unsaved');
   };
 
-  const buildArticlePayload = (targetStatus: 'draft' | 'pending_review' | 'published' | 'archived'): Partial<Article> => {
+  const buildArticlePayload = (targetStatus: ArticleStatus): Partial<Article> => {
     const readingTime = Math.max(
       2,
       Math.ceil(
-        (summary.length + sections.reduce((acc, s) => acc + s.content.join(' ').length, 0)) / 1000
+        (summary.length + sections.reduce((acc, s) => acc + (s.content || []).join(' ').length, 0)) / 1000
       )
     );
 
@@ -168,9 +182,12 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
       slug: articleSlug.trim(),
       summary: summary.trim(),
       articleType: articleType as any,
-      content: sections.map((s) => s.content.join('\n\n')).join('\n\n'),
+      content: sections.map((s) => (s.content || []).join('\n\n')).join('\n\n'),
       featuredImage: featuredImage.trim() || undefined,
       image: featuredImage.trim() || undefined,
+      imageCaption: imageCaption.trim() || undefined,
+      imageCredit: imageCredit.trim() || undefined,
+      imageAlt: imageAlt.trim() || undefined,
       infobox: infobox || undefined,
       sections,
       references: citations,
@@ -180,7 +197,7 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
       categorySlug,
       subCategory: subCategory || undefined,
       tags,
-      authorId: authorId || user?.uid,
+      authorId: authorId || user?.uid || profile?.id,
       author: authorName || profile?.displayName || user?.displayName || 'Contributor',
       updatedAt: new Date().toISOString(),
       lastUpdated: new Date().toLocaleDateString('en-US', {
@@ -189,11 +206,14 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
         year: 'numeric',
       }),
       status: targetStatus,
+      isSensitive: Boolean(isSensitive || contentSensitivity === 'sensitive'),
+      contentSensitivity: isSensitive || contentSensitivity === 'sensitive' ? 'sensitive' : 'normal',
+      sensitivityRationale: sensitivityRationale.trim() || undefined,
       readingTimeMinutes: readingTime,
     };
   };
 
-  const handleUpdate = async (targetStatus: 'draft' | 'pending_review' | 'published') => {
+  const handleUpdate = async (targetStatus: ArticleStatus) => {
     setGeneralError(null);
     setValidationErrors({});
     setSaving(true);
@@ -205,87 +225,129 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
       const validation = validateArticle(payload as any);
       if (!validation.isValid) {
         setValidationErrors(validation.errors);
-        setGeneralError('Please resolve the highlighted validation errors before submitting.');
+        setGeneralError('Please resolve the highlighted validation issues before submitting.');
         setSaving(false);
         setSaveStatus('unsaved');
         return;
       }
-    } else {
-      if (!title.trim()) {
-        setValidationErrors({ title: 'Article requires at least a title.' });
-        setSaving(false);
-        setSaveStatus('unsaved');
-        return;
-      }
-    }
 
-    // Slug check if changed
-    if (articleSlug !== slug) {
-      const available = await isSlugAvailable(articleSlug, articleId);
-      if (!available) {
-        setValidationErrors((prev) => ({
-          ...prev,
-          slug: 'This URL slug is already in use by another article.',
-        }));
-        setSaving(false);
-        setSaveStatus('unsaved');
-        return;
+      // Check hero image alt text if image exists
+      if (featuredImage) {
+        const altCheck = validateImageAlt(imageAlt);
+        if (!altCheck.isValid) {
+          setValidationErrors((prev) => ({
+            ...prev,
+            imageAlt: altCheck.message || 'Descriptive alt text is required for the main image.',
+          }));
+          setGeneralError(altCheck.message || 'Please provide descriptive alt text for your main image.');
+          setSaving(false);
+          setSaveStatus('unsaved');
+          return;
+        }
+      }
+
+      // Check section figures alt text
+      for (let i = 0; i < sections.length; i++) {
+        const fig = sections[i].figure;
+        if (fig && fig.url) {
+          const figAlt = validateImageAlt(fig.alt);
+          if (!figAlt.isValid) {
+            setGeneralError(`Section ${i + 1} (${sections[i].title}) figure requires descriptive alternative text.`);
+            setSaving(false);
+            setSaveStatus('unsaved');
+            return;
+          }
+        }
       }
     }
 
     try {
       await updateArticle(articleId, payload);
-      setIsDirty(false);
-      setSaveStatus('saved');
-      setExistingStatus(targetStatus);
-      setLastSavedTime(new Date().toLocaleTimeString());
 
-      if (targetStatus === 'pending_review') {
+      // Record revision entry in audit history
+      const currentUserId = user?.uid || profile?.id || 'editor';
+      const currentUserName = profile?.displayName || user?.displayName || profile?.username || 'Editor';
+
+      const changeSummary =
+        changeSummaryText.trim() ||
+        (targetStatus === 'pending_review'
+          ? 'Submitted updated version with citations & figures for review'
+          : targetStatus === 'published'
+          ? 'Published revised content and media assets'
+          : 'Updated article draft');
+
+      await createRevision({
+        articleId,
+        articleSlug: payload.slug || articleSlug,
+        articleTitle: title,
+        editorId: currentUserId,
+        editorName: currentUserName,
+        changeSummary,
+        previousContent: '',
+        newContent: typeof payload.content === 'string' ? payload.content : '',
+        actionType:
+          targetStatus === 'published'
+            ? 'approval'
+            : targetStatus === 'pending_review'
+            ? 'submission'
+            : 'draft_saved',
+        createdAt: new Date().toISOString(),
+      });
+
+      setExistingStatus(targetStatus);
+      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setLastSavedTime(now);
+      setSaveStatus('saved');
+      setIsDirty(false);
+
+      if (targetStatus === 'published') {
         setSuccessNotice({
-          message: 'Changes saved and article submitted for review!',
-          actionSlug: articleSlug,
+          message: 'Changes saved and published live to the encyclopedia!',
+          actionSlug: payload.slug || articleSlug,
         });
-      } else if (targetStatus === 'published') {
+      } else if (targetStatus === 'pending_review') {
         setSuccessNotice({
-          message: 'Article successfully updated and published!',
-          actionSlug: articleSlug,
+          message: 'Changes submitted successfully for editorial moderation review.',
         });
       } else {
         setSuccessNotice({
-          message: 'Draft revision saved successfully.',
+          message: 'Article draft updated and saved successfully.',
         });
       }
     } catch (err: any) {
       console.error('Error updating article:', err);
-      setGeneralError(err.message || 'An error occurred while updating the article.');
+      setGeneralError(err.message || 'Failed to update article.');
       setSaveStatus('unsaved');
     } finally {
       setSaving(false);
     }
   };
 
-  if (initialLoading || authLoading) {
-    return <LoadingState type="article" />;
+  if (initialLoading) {
+    return (
+      <div className="py-16 text-center space-y-3 font-mono text-sm text-[#54595d]">
+        <div className="w-6 h-6 border-2 border-[#3366cc] border-t-transparent rounded-full animate-spin mx-auto" />
+        <p>Loading archival record for editing...</p>
+      </div>
+    );
   }
 
   if (permissionDenied) {
     return (
-      <div className="max-w-xl mx-auto py-12 px-4 text-center space-y-4">
-        <div className="p-3 bg-amber-950/80 border border-amber-800/80 rounded-sm text-amber-400 inline-block">
-          <ShieldAlert size={32} />
+      <div className="max-w-2xl mx-auto py-12 px-4 text-center space-y-4">
+        <div className="p-4 bg-red-50 border border-red-200 rounded-sm text-red-800 space-y-2">
+          <ShieldAlert size={36} className="mx-auto text-red-600" />
+          <h2 className="font-serif text-xl font-bold">Editorial Clearance Required</h2>
+          <p className="text-xs text-[#54595d]">
+            You do not have permission to edit this article. Only the original author or verified Editors / Administrators can modify this document.
+          </p>
         </div>
-        <h1 className="font-display text-2xl font-bold text-slate-100">
-          Editorial Access Restricted
-        </h1>
-        <p className="text-xs text-slate-400 leading-relaxed">
-          You do not have authorization to edit this article. Only the original contributor or platform editors can revise this document.
-        </p>
         <button
           type="button"
-          onClick={() => navigate('/my-articles')}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-sm text-xs font-semibold cursor-pointer"
+          onClick={() => navigate(`/wiki/${slug}`)}
+          className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#f8f9fa] border border-[#a2a9b1] hover:bg-[#eaecf0] text-xs font-semibold rounded-sm cursor-pointer font-mono"
         >
-          Return to My Contributions
+          <ArrowLeft size={13} /> Return to Article
         </button>
       </div>
     );
@@ -293,144 +355,114 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
 
   if (notFound) {
     return (
-      <div className="max-w-xl mx-auto py-12 px-4 text-center space-y-4">
-        <div className="p-3 bg-slate-800 rounded-sm text-slate-400 inline-block">
-          <AlertCircle size={32} />
+      <div className="max-w-2xl mx-auto py-12 px-4 text-center space-y-4">
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-sm text-amber-900 space-y-2">
+          <AlertTriangle size={36} className="mx-auto text-amber-600" />
+          <h2 className="font-serif text-xl font-bold">Article Record Not Found</h2>
+          <p className="text-xs text-[#54595d]">
+            No encyclopedia record matching "{slug}" could be located in our repository.
+          </p>
         </div>
-        <h1 className="font-display text-2xl font-bold text-slate-100">
-          Article Not Found
-        </h1>
-        <p className="text-xs text-slate-400">
-          Could not locate article with identifier "{slug}". It may have been deleted or moved.
-        </p>
         <button
           type="button"
-          onClick={() => navigate('/my-articles')}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-sm text-xs font-semibold cursor-pointer"
+          onClick={() => navigate('/')}
+          className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#f8f9fa] border border-[#a2a9b1] hover:bg-[#eaecf0] text-xs font-semibold rounded-sm cursor-pointer font-mono"
         >
-          Go to My Contributions
+          <ArrowLeft size={13} /> Back to Encyclopedia
         </button>
       </div>
     );
   }
 
+  const breadcrumbs = [
+    { label: 'Encyclopedia', path: '/' },
+    { label: title || slug, path: `/wiki/${slug}` },
+    { label: 'Edit Article Record' },
+  ];
+
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-16">
-      <Breadcrumbs
-        items={[
-          { label: 'My Contributions', path: '/my-articles' },
-          { label: `Edit: ${title || slug}` },
-        ]}
-      />
+    <div className="space-y-6 max-w-5xl mx-auto pb-20">
+      {/* Breadcrumbs */}
+      <div className="border-b border-[#eaecf0] pb-2">
+        <Breadcrumbs items={breadcrumbs} />
+      </div>
 
-      {/* Status Alert for Pending Review */}
-      {existingStatus === 'pending_review' && (
-        <div className="p-3.5 bg-blue-950/60 border border-blue-500/50 rounded-sm text-blue-200 text-xs flex items-center justify-between gap-3">
+      {/* Editorial Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-[#f8f9fa] border border-[#a2a9b1] rounded-sm p-4 sm:p-5 shadow-xs">
+        <div>
           <div className="flex items-center gap-2">
-            <Clock size={16} className="text-sky-400 shrink-0" />
-            <span>
-              This article is currently <strong>Under Editorial Review</strong>. You can make revisions and re-save or convert back to draft.
-            </span>
-          </div>
-          <span className="font-mono text-[10px] bg-blue-900/80 px-2 py-0.5 rounded border border-blue-700">
-            Pending Review
-          </span>
-        </div>
-      )}
-
-      {/* Sticky Top Toolbar */}
-      <div className="bg-[#090e1a]/95 backdrop-blur border border-slate-800 rounded-sm p-4 sticky top-14 z-30 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 bg-blue-600/10 border border-blue-500/30 rounded-sm text-sky-400 shrink-0">
-            <FileEdit size={18} />
-          </div>
-          <div>
-            <h1 className="text-base sm:text-lg font-bold text-slate-100 font-display leading-tight">
-              Edit Article: {title || slug}
+            <FileEdit size={18} className="text-[#3366cc]" />
+            <h1 className="font-serif text-2xl sm:text-3xl font-bold text-[#101418]">
+              Edit Article Record: <span className="italic">{title || slug}</span>
             </h1>
-            <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400 mt-0.5">
-              <span className="text-slate-500">Status:</span>
-              <span className="uppercase text-sky-400 font-bold">{existingStatus}</span>
-              {saveStatus === 'saved' && (
-                <span className="text-emerald-400 flex items-center gap-1 ml-2">
-                  <CheckCircle size={12} /> Saved {lastSavedTime ? `at ${lastSavedTime}` : ''}
-                </span>
-              )}
-              {saveStatus === 'unsaved' && (
-                <span className="text-amber-400 flex items-center gap-1 ml-2">
-                  <Clock size={12} /> Unsaved changes
-                </span>
-              )}
-            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-[#54595d] mt-1 font-mono">
+            <span>Status: <strong className="text-[#101418] uppercase">{existingStatus}</strong></span>
+            <span>&bull;</span>
+            <span>Author: <strong>{authorName}</strong></span>
+            {isEditor && <span className="text-[#3366cc] font-semibold">(Editor Authority Active)</span>}
           </div>
         </div>
 
-        {/* Actions */}
-        <div className="flex flex-wrap items-center gap-2 self-end sm:self-auto">
+        <div className="flex items-center gap-2">
+          {/* AI Writing Assistant Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSectionAiIndex(null);
+              setAiWritingModalOpen(true);
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-50 to-indigo-50 hover:from-blue-100 hover:to-indigo-100 text-[#3366cc] border border-blue-200 hover:border-[#3366cc] rounded-sm text-xs font-semibold font-serif cursor-pointer transition-all shadow-xs"
+            title="Open AI Article Writing & Research Tools"
+          >
+            <Sparkles size={14} className="text-[#3366cc]" />
+            <span>AI Writing Tools</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setPreviewOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#141c2e] hover:bg-[#1a253c] text-slate-300 rounded-sm text-xs font-semibold border border-slate-700 cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#ffffff] hover:bg-[#eaecf0] text-[#101418] border border-[#a2a9b1] rounded-sm text-xs font-semibold font-mono cursor-pointer transition-all shadow-xs"
           >
-            <Eye size={14} className="text-sky-400" />
-            <span>Preview</span>
+            <Eye size={14} className="text-[#3366cc]" />
+            <span>Preview Draft</span>
           </button>
-
-          <button
-            type="button"
-            onClick={() => handleUpdate('draft')}
-            disabled={saving}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 border border-slate-700 rounded-sm text-xs font-semibold cursor-pointer"
-          >
-            <Save size={14} />
-            <span>Save as Draft</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleUpdate('pending_review')}
-            disabled={saving}
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-sm text-xs font-semibold cursor-pointer shadow-md"
-          >
-            <Send size={14} />
-            <span>Submit for Review</span>
-          </button>
-
-          {isEditor && (
-            <button
-              type="button"
-              onClick={() => handleUpdate('published')}
-              disabled={saving}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-sm text-xs font-semibold cursor-pointer shadow-sm ml-1"
-            >
-              <Sparkles size={14} />
-              <span>Publish Changes</span>
-            </button>
-          )}
         </div>
       </div>
 
+      {/* Moderation Notes if changes requested */}
+      {existingStatus === 'changes_requested' && moderationNotes && (
+        <div className="p-4 bg-amber-50 border border-amber-300 rounded-sm text-xs text-amber-900 space-y-1.5 shadow-xs">
+          <div className="flex items-center gap-2 font-bold font-mono text-amber-950">
+            <MessageSquare size={14} className="text-amber-700" />
+            <span>Editorial Board Revision Request Notes:</span>
+          </div>
+          <p className="leading-relaxed pl-6 italic">"{moderationNotes}"</p>
+        </div>
+      )}
+
       {/* Success Notification */}
       {successNotice && (
-        <div className="p-4 bg-emerald-950/60 border border-emerald-500/50 rounded-sm text-emerald-200 text-xs sm:text-sm flex items-center justify-between gap-3 shadow-lg">
+        <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-sm text-emerald-900 text-xs sm:text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
           <div className="flex items-center gap-2">
-            <CheckCircle size={18} className="text-emerald-400 shrink-0" />
-            <span>{successNotice.message}</span>
+            <CheckCircle size={18} className="text-emerald-700 shrink-0" />
+            <span className="font-medium">{successNotice.message}</span>
           </div>
-          <div className="flex items-center gap-2">
+
+          <div className="flex items-center gap-2 shrink-0">
             {successNotice.actionSlug && (
               <button
                 type="button"
                 onClick={() => navigate(`/wiki/${successNotice.actionSlug}`)}
-                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-sm text-xs font-semibold cursor-pointer"
+                className="px-3 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded-sm text-xs font-semibold cursor-pointer"
               >
-                View Live Article &rarr;
+                View Article &rarr;
               </button>
             )}
             <button
               type="button"
               onClick={() => navigate('/my-articles')}
-              className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-sm text-xs font-semibold cursor-pointer"
+              className="px-3 py-1 bg-[#f8f9fa] hover:bg-[#eaecf0] text-[#101418] border border-[#a2a9b1] rounded-sm text-xs font-semibold cursor-pointer"
             >
               My Contributions
             </button>
@@ -438,85 +470,225 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
         </div>
       )}
 
-      {/* Error Notification */}
+      {/* Error Banner */}
       {generalError && (
-        <div className="p-4 bg-red-950/60 border border-red-500/50 rounded-sm text-red-200 text-xs sm:text-sm flex items-center gap-2.5 shadow-lg">
-          <AlertCircle size={18} className="text-red-400 shrink-0" />
+        <div className="p-4 bg-red-50 border border-red-200 rounded-sm text-red-700 text-xs sm:text-sm flex items-center gap-2.5 shadow-xs">
+          <AlertCircle size={18} className="text-red-600 shrink-0" />
           <span>{generalError}</span>
         </div>
       )}
 
-      {/* Metadata Form */}
-      <EditorMetadata
-        title={title}
-        slug={articleSlug}
-        summary={summary}
-        articleType={articleType}
-        category={category}
-        categorySlug={categorySlug}
-        subCategory={subCategory}
-        tags={tags}
-        featuredImage={featuredImage}
-        currentArticleId={articleId}
-        onChange={(fields) => {
-          markDirty();
-          if (fields.title !== undefined) setTitle(fields.title);
-          if (fields.slug !== undefined) setArticleSlug(fields.slug);
-          if (fields.summary !== undefined) setSummary(fields.summary);
-          if (fields.articleType !== undefined) setArticleType(fields.articleType);
-          if (fields.category !== undefined) setCategory(fields.category);
-          if (fields.categorySlug !== undefined) setCategorySlug(fields.categorySlug);
-          if (fields.subCategory !== undefined) setSubCategory(fields.subCategory);
-          if (fields.tags !== undefined) setTags(fields.tags);
-          if (fields.featuredImage !== undefined) setFeaturedImage(fields.featuredImage);
-        }}
-        errors={validationErrors}
-      />
+      {/* Change Summary Input */}
+      <div className="bg-[#ffffff] border border-[#a2a9b1] rounded-sm p-4 space-y-2 shadow-xs">
+        <label className="block text-xs font-bold text-[#101418] font-mono uppercase">
+          Revision Summary / Edit Note (Recorded in Audit History)
+        </label>
+        <input
+          type="text"
+          value={changeSummaryText}
+          onChange={(e) => {
+            setChangeSummaryText(e.target.value);
+            markDirty();
+          }}
+          placeholder="E.g., Added primary references for the 3rd century chronology, added section illustration..."
+          className="w-full bg-[#f8f9fa] border border-[#a2a9b1] focus:border-[#3366cc] rounded-sm px-3 py-1.5 text-xs text-[#202122] placeholder-[#72777d] focus:outline-none font-sans"
+        />
+      </div>
 
-      {/* Sections List */}
-      <EditorSectionList
-        sections={sections}
-        onChange={(newSections) => {
-          markDirty();
-          setSections(newSections);
-        }}
-      />
+      {/* Editor Sections */}
+      <div className="space-y-6">
+        <EditorMetadata
+          title={title}
+          slug={articleSlug}
+          summary={summary}
+          articleType={articleType}
+          category={category}
+          categorySlug={categorySlug}
+          subCategory={subCategory}
+          tags={tags}
+          featuredImage={featuredImage}
+          imageCaption={imageCaption}
+          imageCredit={imageCredit}
+          imageAlt={imageAlt}
+          isSensitive={isSensitive}
+          contentSensitivity={contentSensitivity}
+          sensitivityRationale={sensitivityRationale}
+          currentArticleId={articleId}
+          onChange={(fields) => {
+            markDirty();
+            if (fields.title !== undefined) setTitle(fields.title);
+            if (fields.slug !== undefined) setArticleSlug(fields.slug);
+            if (fields.summary !== undefined) setSummary(fields.summary);
+            if (fields.articleType !== undefined) setArticleType(fields.articleType);
+            if (fields.category !== undefined) setCategory(fields.category);
+            if (fields.categorySlug !== undefined) setCategorySlug(fields.categorySlug);
+            if (fields.subCategory !== undefined) setSubCategory(fields.subCategory);
+            if (fields.tags !== undefined) setTags(fields.tags);
+            if (fields.featuredImage !== undefined) setFeaturedImage(fields.featuredImage);
+            if (fields.imageCaption !== undefined) setImageCaption(fields.imageCaption);
+            if (fields.imageCredit !== undefined) setImageCredit(fields.imageCredit);
+            if (fields.imageAlt !== undefined) setImageAlt(fields.imageAlt);
+            if (fields.isSensitive !== undefined) setIsSensitive(fields.isSensitive);
+            if (fields.contentSensitivity !== undefined) setContentSensitivity(fields.contentSensitivity);
+            if (fields.sensitivityRationale !== undefined) setSensitivityRationale(fields.sensitivityRationale);
+          }}
+          errors={validationErrors}
+        />
 
-      {/* Infobox */}
-      <EditorInfobox
-        infobox={infobox}
-        articleTitle={title}
-        articleType={articleType as any}
-        onChange={(newInfobox) => {
-          markDirty();
-          setInfobox(newInfobox);
-        }}
-      />
+        <EditorSectionList
+          sections={sections}
+          citations={citations}
+          categorySlug={categorySlug}
+          categoryName={category}
+          errors={validationErrors}
+          onChange={(newSections) => {
+            markDirty();
+            setSections(newSections);
+          }}
+          onOpenAiWritingTools={(secIdx) => {
+            setActiveSectionAiIndex(secIdx);
+            setAiWritingModalOpen(true);
+          }}
+        />
 
-      {/* References */}
-      <EditorReferences
-        citations={citations}
-        onChange={(newCitations) => {
-          markDirty();
-          setCitations(newCitations);
-        }}
-      />
+        <EditorInfobox
+          infobox={infobox}
+          articleTitle={title}
+          articleType={articleType as any}
+          onChange={(newInfobox) => {
+            markDirty();
+            setInfobox(newInfobox);
+          }}
+        />
 
-      {/* Live Preview Modal */}
+        <EditorReferences
+          citations={citations}
+          error={validationErrors.citations}
+          onChange={(newCitations) => {
+            markDirty();
+            setCitations(newCitations);
+          }}
+        />
+      </div>
+
+      {/* Sticky Bottom Actions Bar */}
+      <div className="sticky bottom-0 z-30 bg-[#ffffff] border-t border-[#a2a9b1] p-4 shadow-lg flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-xs font-mono text-[#54595d]">
+          <span className="flex items-center gap-1">
+            <Clock size={12} />
+            {saveStatus === 'saving'
+              ? 'Saving...'
+              : saveStatus === 'saved'
+              ? `Saved at ${lastSavedTime}`
+              : isDirty
+              ? 'Unsaved modifications'
+              : 'Synced'}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Save Draft */}
+          <button
+            type="button"
+            onClick={() => handleUpdate('draft')}
+            disabled={saving}
+            className="px-3.5 py-1.5 bg-[#ffffff] hover:bg-[#eaecf0] text-[#101418] border border-[#a2a9b1] rounded-sm text-xs font-semibold font-mono cursor-pointer transition-colors"
+          >
+            Save Draft
+          </button>
+
+          {/* Submit for Review or Direct Publish */}
+          {isEditor ? (
+            <button
+              type="button"
+              onClick={() => handleUpdate('published')}
+              disabled={saving || !title.trim() || !summary.trim()}
+              className="px-4 py-1.5 bg-[#3366cc] hover:bg-[#2557bb] disabled:opacity-40 text-white rounded-sm text-xs font-semibold font-mono cursor-pointer shadow-xs transition-colors flex items-center gap-1.5"
+            >
+              <Send size={13} />
+              <span>{existingStatus === 'published' ? 'Publish Revision Live' : 'Approve & Publish Live'}</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => handleUpdate('pending_review')}
+              disabled={saving || !title.trim() || !summary.trim()}
+              className="px-4 py-1.5 bg-[#3366cc] hover:bg-[#2557bb] disabled:opacity-40 text-white rounded-sm text-xs font-semibold font-mono cursor-pointer shadow-xs transition-colors flex items-center gap-1.5"
+            >
+              <Send size={13} />
+              <span>Submit for Review</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Preview Modal */}
       <EditorPreviewModal
         isOpen={previewOpen}
         onClose={() => setPreviewOpen(false)}
         article={buildArticlePayload(existingStatus)}
       />
 
-      {/* Unsaved Changes Confirmation */}
+      {/* AI Writing Tools Modal */}
+      <AiWritingToolsModal
+        isOpen={aiWritingModalOpen}
+        onClose={() => {
+          setAiWritingModalOpen(false);
+          setActiveSectionAiIndex(null);
+        }}
+        title={title}
+        summary={summary}
+        category={category}
+        currentContent={
+          activeSectionAiIndex !== null && sections[activeSectionAiIndex]
+            ? (sections[activeSectionAiIndex].content || []).join('\n\n')
+            : (sections[0]?.content || []).join('\n\n')
+        }
+        onApplySummary={(newSum) => {
+          markDirty();
+          setSummary(newSum);
+        }}
+        onApplyTitle={(newTitle, newSlug) => {
+          markDirty();
+          setTitle(newTitle);
+          if (newSlug) setArticleSlug(newSlug);
+        }}
+        onApplyContent={(improvedText) => {
+          markDirty();
+          const targetIdx = activeSectionAiIndex !== null ? activeSectionAiIndex : 0;
+          const copy = [...sections];
+          const paras = improvedText.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+          if (copy[targetIdx]) {
+            copy[targetIdx] = {
+              ...copy[targetIdx],
+              content: paras.length > 0 ? paras : [improvedText],
+            };
+            setSections(copy);
+          }
+        }}
+        onAppendSection={(secTitle, paragraphs) => {
+          markDirty();
+          const newSection: ArticleSection = {
+            id: `section-ai-${Date.now()}`,
+            title: secTitle,
+            content: paragraphs,
+            bulletPoints: [],
+          };
+          setSections([...sections, newSection]);
+        }}
+      />
+
+      {/* Exit Dialog */}
       <UnsavedChangesDialog
         isOpen={showExitDialog}
-        onCancel={() => setShowExitDialog(false)}
         onConfirm={() => {
-          setShowExitDialog(false);
           setIsDirty(false);
+          setShowExitDialog(false);
           if (pendingExitUrl) navigate(pendingExitUrl);
+        }}
+        onCancel={() => {
+          setShowExitDialog(false);
+          setPendingExitUrl(null);
         }}
       />
     </div>

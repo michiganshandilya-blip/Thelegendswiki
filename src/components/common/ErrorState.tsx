@@ -21,15 +21,15 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
   return (
     <div
       id="error-state-box"
-      className={`max-w-md mx-auto my-12 p-6 bg-[#0e1422] border border-slate-800 rounded-sm text-center shadow-xl shadow-black/40 ${className}`}
+      className={`max-w-md mx-auto my-12 p-6 bg-[#ffffff] border border-[#a2a9b1] rounded-sm text-center shadow-xs ${className}`}
     >
-      <div className="w-12 h-12 rounded-sm bg-amber-950/60 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto mb-4 shadow-md">
+      <div className="w-12 h-12 rounded-sm bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center mx-auto mb-4 shadow-xs">
         <AlertTriangle size={24} />
       </div>
-      <h3 className="font-display text-xl font-bold text-slate-100 mb-2">
+      <h3 className="font-serif text-xl font-bold text-[#101418] mb-2">
         {title}
       </h3>
-      <p className="text-sm text-slate-400 mb-6 leading-relaxed">
+      <p className="text-xs sm:text-sm text-[#54595d] mb-6 leading-relaxed font-sans">
         {message}
       </p>
       <div className="flex items-center justify-center gap-3">

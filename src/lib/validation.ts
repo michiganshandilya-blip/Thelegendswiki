@@ -10,14 +10,69 @@ import {
   ArticleStatus,
   ReportStatus
 } from '../types';
+import { MANDATORY_DOSSIER_SECTIONS } from './dossierStructure';
 
 export const VALID_USER_ROLES: UserRole[] = ['guest', 'registered_user', 'editor', 'administrator'];
-export const VALID_ARTICLE_STATUSES: ArticleStatus[] = ['draft', 'pending_review', 'published', 'archived'];
+export const VALID_ARTICLE_STATUSES: ArticleStatus[] = [
+  'draft', 
+  'pending_review', 
+  'changes_requested', 
+  'published', 
+  'rejected', 
+  'archived'
+];
 export const VALID_REPORT_STATUSES: ReportStatus[] = ['pending', 'reviewed', 'resolved', 'dismissed'];
 
 const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,30}$/;
+
+/**
+ * Validates an image's alternative text for accessibility.
+ * Ensures the alt text is descriptive and avoids meaningless generic placeholders.
+ */
+export function validateImageAlt(alt?: string): { isValid: boolean; message?: string } {
+  if (!alt || typeof alt !== 'string' || alt.trim().length === 0) {
+    return {
+      isValid: false,
+      message: 'Descriptive alternative text is required for screen readers and accessibility.',
+    };
+  }
+
+  const trimmed = alt.trim().toLowerCase();
+  const meaninglessNames = [
+    'image',
+    'image1',
+    'image2',
+    'img',
+    'photo',
+    'pic',
+    'picture',
+    'screenshot',
+    'file',
+    'download',
+    'upload',
+    'thumbnail',
+    'banner',
+    'untitled',
+  ];
+
+  if (meaninglessNames.includes(trimmed)) {
+    return {
+      isValid: false,
+      message: `"${alt}" is not a descriptive alt text. Please describe what the image depicts (e.g. "Portrait of Albert Einstein at the Prussian Academy").`,
+    };
+  }
+
+  if (trimmed.length < 3) {
+    return {
+      isValid: false,
+      message: 'Alternative text must be at least 3 characters long to be descriptive.',
+    };
+  }
+
+  return { isValid: true };
+}
 
 /**
  * Validates an Article payload before saving to Firestore.
@@ -58,6 +113,30 @@ export function validateArticle(data: Partial<Article>): ValidationResult {
   // 6. Author validation
   if (!data.authorId || typeof data.authorId !== 'string') {
     errors.authorId = 'Author identifier is required.';
+  }
+
+  // 7. Mandatory 8-part dossier sections validation (for submission / publication)
+  if (data.status === 'pending_review' || data.status === 'published') {
+    const sections = data.sections || [];
+    
+    MANDATORY_DOSSIER_SECTIONS.forEach((def, index) => {
+      const sec = sections[index] || sections.find((s) => s.id === def.id || s.title?.toLowerCase() === def.title.toLowerCase());
+      const content = sec?.content ? (Array.isArray(sec.content) ? sec.content.join(' ').trim() : String(sec.content).trim()) : '';
+
+      if (!content || content.length < 15) {
+        errors[def.id] = `Section §${def.order} "${def.title}" is required (minimum 15 characters).`;
+      }
+    });
+
+    // 8. Mandatory Section 9: Sources / References validation
+    const citationsList = data.citations || data.references || [];
+    const validCitations = citationsList.filter(
+      (c) => c && ((c.title && c.title.trim().length > 0) || (c.url && c.url.trim().length > 0))
+    );
+
+    if (validCitations.length === 0) {
+      errors.citations = 'Section §9 Sources / References is mandatory. You must provide at least one verifiable source or reference before submitting.';
+    }
   }
 
   return {
@@ -238,4 +317,3 @@ export function sanitizeTag(rawTag: string): string {
     .replace(/\s+/g, ' ')
     .slice(0, 30);
 }
-

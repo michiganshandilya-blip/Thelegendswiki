@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { BookOpen, Edit3, MessageSquare, Bookmark, Share2, Printer, Check } from 'lucide-react';
+import { BookOpen, Edit3, MessageSquare, Bookmark, Share2, Printer, Check, History } from 'lucide-react';
 import { useRouter } from '../../context/RouterContext';
+import { useAuth } from '../../context/AuthContext';
 import { Button } from '../common/Button';
 
 interface ArticleActionsProps {
@@ -10,11 +11,11 @@ interface ArticleActionsProps {
 }
 
 export const ArticleActions: React.FC<ArticleActionsProps> = ({
-  articleTitle,
   articleSlug,
   className = '',
 }) => {
   const { navigate } = useRouter();
+  const { isAuthenticated, isGuest } = useAuth();
   const [activeTab, setActiveTab] = useState<'read' | 'edit' | 'discussion'>('read');
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -40,36 +41,44 @@ export const ArticleActions: React.FC<ArticleActionsProps> = ({
   };
 
   const handleBookmarkToggle = () => {
+    if (!isAuthenticated) {
+      showToast('Please sign in to bookmark articles');
+      return;
+    }
     setIsBookmarked(!isBookmarked);
-    showToast(!isBookmarked ? 'Article bookmarked locally' : 'Bookmark removed');
+    showToast(!isBookmarked ? 'Article bookmarked' : 'Bookmark removed');
   };
 
-  const handlePlaceholderAction = (type: string) => {
-    showToast(`${type} will be available in future collaborative phases.`);
+  const handleEditClick = () => {
+    if (isGuest || !isAuthenticated) {
+      navigate(`/login?redirect=/edit/${articleSlug}`);
+    } else {
+      navigate(`/edit/${articleSlug}`);
+    }
   };
 
   return (
-    <div className={`relative flex flex-wrap items-center justify-between gap-3 pt-2 pb-1 ${className}`}>
-      {/* Primary Encyclopedia Tabs (Read / Edit / Discussion) */}
-      <div className="flex items-center space-x-1 border-b border-[#1e293b] w-full sm:w-auto -mb-px">
+    <div className={`relative flex flex-wrap items-center justify-between gap-3 pt-1 border-b border-[#eaecf0] no-print ${className}`}>
+      {/* Primary Tabs (Read / Edit / History) */}
+      <div className="flex items-center space-x-1 -mb-px">
         <button
           type="button"
           onClick={() => setActiveTab('read')}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border-b-2 transition-colors cursor-pointer ${
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
             activeTab === 'read'
-              ? 'border-sky-400 text-sky-300 bg-[#141c2e]'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
+              ? 'border-[#3366cc] text-[#3366cc] bg-[#ffffff] font-semibold'
+              : 'border-transparent text-[#54595d] hover:text-[#101418]'
           }`}
         >
-          <BookOpen size={13} className={activeTab === 'read' ? 'text-sky-400' : ''} />
+          <BookOpen size={13} className={activeTab === 'read' ? 'text-[#3366cc]' : ''} />
           <span>Read</span>
         </button>
 
         <button
           type="button"
-          onClick={() => navigate(`/edit/${articleSlug}`)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-sky-300 hover:bg-slate-800/40 border-b-2 border-transparent cursor-pointer transition-colors"
-          title="Edit or contribute revisions to this article"
+          onClick={handleEditClick}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#54595d] hover:text-[#3366cc] hover:bg-[#f1f5f9] border-b-2 border-transparent cursor-pointer transition-colors"
+          title={isGuest ? 'Sign in to edit' : 'Edit this article'}
         >
           <Edit3 size={13} />
           <span>Edit</span>
@@ -77,17 +86,17 @@ export const ArticleActions: React.FC<ArticleActionsProps> = ({
 
         <button
           type="button"
-          onClick={() => handlePlaceholderAction('Discussion / Talk page')}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-300 border-b-2 border-transparent cursor-pointer transition-colors"
-          title="Discussion system will be enabled in a future phase"
+          onClick={() => navigate('/admin')}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#72777d] hover:text-[#101418] border-b-2 border-transparent cursor-pointer transition-colors"
+          title="View revision audit"
         >
-          <MessageSquare size={13} />
-          <span>Discussion</span>
+          <History size={13} />
+          <span>History</span>
         </button>
       </div>
 
       {/* Utility Action Buttons (Bookmark / Share / Print) */}
-      <div className="flex items-center gap-1.5 text-xs">
+      <div className="flex items-center gap-1 text-xs pb-1">
         <Button
           variant="ghost"
           size="sm"
@@ -95,13 +104,13 @@ export const ArticleActions: React.FC<ArticleActionsProps> = ({
           icon={
             <Bookmark
               size={13}
-              className={isBookmarked ? 'fill-sky-400 text-sky-400' : 'text-slate-400'}
+              className={isBookmarked ? 'fill-[#3366cc] text-[#3366cc]' : 'text-[#72777d]'}
             />
           }
-          className={isBookmarked ? 'text-sky-400 bg-sky-950/40' : 'text-slate-400'}
+          className={isBookmarked ? 'text-[#3366cc] bg-blue-50' : 'text-[#54595d]'}
           title={isBookmarked ? 'Remove Bookmark' : 'Bookmark Article'}
         >
-          <span className="hidden xs:inline">{isBookmarked ? 'Saved' : 'Bookmark'}</span>
+          <span className="hidden sm:inline">{isBookmarked ? 'Saved' : 'Bookmark'}</span>
         </Button>
 
         <Button
@@ -111,7 +120,7 @@ export const ArticleActions: React.FC<ArticleActionsProps> = ({
           icon={<Share2 size={13} />}
           title="Share article URL"
         >
-          <span className="hidden xs:inline">Share</span>
+          <span className="hidden sm:inline">Share</span>
         </Button>
 
         <Button
@@ -121,7 +130,7 @@ export const ArticleActions: React.FC<ArticleActionsProps> = ({
           icon={<Printer size={13} />}
           title="Print this article"
         >
-          <span className="hidden xs:inline">Print</span>
+          <span className="hidden sm:inline">Print</span>
         </Button>
       </div>
 
@@ -130,13 +139,12 @@ export const ArticleActions: React.FC<ArticleActionsProps> = ({
         <div
           role="status"
           aria-live="polite"
-          className="absolute top-full left-0 right-0 sm:right-auto sm:left-auto mt-2 z-30 bg-[#141c2e] border border-[#1e293b] text-slate-100 text-xs px-3 py-1.5 rounded-sm shadow-lg flex items-center gap-2 animate-fade-in"
+          className="absolute top-full left-0 right-0 sm:right-auto sm:left-auto mt-2 z-30 bg-[#ffffff] border border-[#a2a9b1] text-[#202122] text-xs px-3 py-1.5 rounded-sm shadow-md flex items-center gap-2"
         >
-          <Check size={12} className="text-emerald-400 shrink-0" />
+          <Check size={12} className="text-emerald-600 shrink-0" />
           <span>{toastMessage}</span>
         </div>
       )}
     </div>
   );
 };
-

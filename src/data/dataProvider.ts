@@ -15,13 +15,24 @@ export function initDatabaseSync() {
 }
 
 /**
- * Hook to retrieve all published articles with real-time or async fallback.
+ * Hook to retrieve all published articles with real-time or async fallback and layer filtering.
  */
-export function useArticles(options?: { categorySlug?: string; limitCount?: number }) {
+export function useArticles(options?: {
+  categorySlug?: string;
+  limitCount?: number;
+  layer?: 'all' | 'visible' | 'behind_curtains';
+  isBehindCurtains?: boolean;
+}) {
   const [articles, setArticles] = useState<Article[]>(() => {
     let list = DEMO_ARTICLES;
-    if (options?.categorySlug && options.categorySlug !== 'all') {
+    if (options?.categorySlug && options.categorySlug !== 'all' && options.categorySlug !== 'behind-the-curtains') {
       list = list.filter((a) => a.categorySlug === options.categorySlug);
+    }
+    const layer = options?.layer || (options?.isBehindCurtains ? 'behind_curtains' : 'all');
+    if (layer === 'behind_curtains' || options?.categorySlug === 'behind-the-curtains') {
+      list = list.filter((a) => a.isBehindCurtains);
+    } else if (layer === 'visible') {
+      list = list.filter((a) => !a.isBehindCurtains);
     }
     if (options?.limitCount) {
       list = list.slice(0, options.limitCount);
@@ -53,18 +64,38 @@ export function useArticles(options?: { categorySlug?: string; limitCount?: numb
     return () => {
       isMounted = false;
     };
-  }, [options?.categorySlug, options?.limitCount]);
+  }, [options?.categorySlug, options?.limitCount, options?.layer, options?.isBehindCurtains]);
 
   return { articles, loading, error };
+}
+
+function findDemoArticleBySlug(slug: string): Article | null {
+  if (!slug) return null;
+  const decoded = decodeURIComponent(slug).trim().toLowerCase();
+  const normalized = decoded.replace(/[_\s]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/--+/g, '-').replace(/^-+|-+$/g, '');
+  
+  return (
+    DEMO_ARTICLES.find((a) => {
+      const aSlug = (a.slug || '').toLowerCase();
+      const aId = (a.id || '').toLowerCase();
+      const aTitleNorm = (a.title || '').toLowerCase().replace(/[_\s]+/g, '-').replace(/[^a-z0-9-]/g, '');
+      return (
+        aSlug === decoded ||
+        aSlug === normalized ||
+        aId === decoded ||
+        aId === `art-${normalized}` ||
+        aTitleNorm === normalized ||
+        (a.title && a.title.toLowerCase() === decoded)
+      );
+    }) || null
+  );
 }
 
 /**
  * Hook to retrieve an article by slug with automatic view count tracking.
  */
 export function useArticle(slug: string) {
-  const [article, setArticle] = useState<Article | null>(() => {
-    return DEMO_ARTICLES.find((a) => a.slug === slug) || null;
-  });
+  const [article, setArticle] = useState<Article | null>(() => findDemoArticleBySlug(slug));
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,21 +107,37 @@ export function useArticle(slug: string) {
       return;
     }
 
+    setLoading(true);
+    setError(null);
+
+    // Immediately synchronize state with best-effort local match to avoid flash
+    const immediateMatch = findDemoArticleBySlug(slug);
+    if (immediateMatch) {
+      setArticle(immediateMatch);
+    }
+
     initDatabaseSync();
 
     getArticleBySlug(slug)
       .then((data) => {
         if (isMounted) {
-          setArticle(data);
           if (data) {
-            // Non-blocking view count increment
+            setArticle(data);
             incrementArticleViewCount(data.id, slug);
+          } else if (immediateMatch) {
+            setArticle(immediateMatch);
+          } else {
+            setArticle(null);
           }
         }
       })
       .catch((err) => {
         if (isMounted) {
-          setError(err.message || 'Failed to fetch article');
+          if (immediateMatch) {
+            setArticle(immediateMatch);
+          } else {
+            setError(err.message || 'Failed to fetch article');
+          }
         }
       })
       .finally(() => {
@@ -141,10 +188,20 @@ export function useCategories() {
 }
 
 /**
- * Hook to resolve complex category hierarchies with fallback.
+ * Hook to resolve complex category hierarchies with fallback and Behind the Curtains layer support.
  */
-export function useResolvedCategory(slug: string) {
-  const [context, setContext] = useState(() => demoResolveCategory(slug));
+export function useResolvedCategory(
+  slug: string,
+  options?: { curtainsOnly?: boolean; layer?: 'all' | 'visible' | 'behind_curtains' }
+) {
+  const isCurtains = Boolean(
+    options?.curtainsOnly || 
+    options?.layer === 'behind_curtains' || 
+    slug === 'behind-the-curtains' || 
+    slug === 'curtains'
+  );
+
+  const [context, setContext] = useState(() => demoResolveCategory(slug, { curtainsOnly: isCurtains, layer: options?.layer }));
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
@@ -159,34 +216,26 @@ export function useResolvedCategory(slug: string) {
       .then(([articles, currentCategory, allCategories]) => {
         if (!isMounted) return;
 
-        if (slug === 'all') {
-          setContext({
-            category: {
-              id: 'cat-all',
-              slug: 'all',
-              name: 'All Disciplines & Categories',
-              description: 'Comprehensive overview of all core knowledge domains and specialist sub-disciplines.',
-              iconName: 'Compass',
-              articleCount: articles.length || DEMO_ARTICLES.length,
-            },
-            isSubcategory: false,
-            articles: articles.length > 0 ? articles : DEMO_ARTICLES,
-            popularArticles: (articles.length > 0 ? articles : DEMO_ARTICLES).filter((a) => a.popular).slice(0, 4),
-            recentArticles: [...(articles.length > 0 ? articles : DEMO_ARTICLES)]
-              .sort((a, b) => b.lastUpdated.localeCompare(a.lastUpdated))
-              .slice(0, 4),
-          });
+        if (slug === 'all' || slug === 'behind-the-curtains' || slug === 'curtains') {
+          setContext(demoResolveCategory(slug, { curtainsOnly: isCurtains, layer: options?.layer }));
           return;
         }
 
         if (currentCategory) {
-          const catArticles = articles.filter((a) => a.categorySlug === slug);
+          const rawCatArticles = articles.filter((a) => a.categorySlug === slug);
+          const baseList = rawCatArticles.length > 0 ? rawCatArticles : DEMO_ARTICLES.filter((a) => a.categorySlug === slug);
+          const catArticles = isCurtains ? baseList.filter((a) => a.isBehindCurtains) : baseList;
+
           setContext({
             category: currentCategory,
             isSubcategory: false,
-            articles: catArticles.length > 0 ? catArticles : DEMO_ARTICLES.filter((a) => a.categorySlug === slug),
+            isCurtainsLayer: isCurtains,
+            activeLayer: isCurtains ? 'behind_curtains' : 'all',
+            articles: catArticles,
             popularArticles: catArticles.filter((a) => a.popular).slice(0, 3),
             recentArticles: [...catArticles].sort((a, b) => b.lastUpdated.localeCompare(a.lastUpdated)).slice(0, 3),
+            totalCategoryArticles: baseList.length,
+            curtainsArticlesCount: baseList.filter((a) => a.isBehindCurtains).length,
           });
           return;
         }
@@ -196,15 +245,22 @@ export function useResolvedCategory(slug: string) {
           if (parent.subcategories) {
             const sub = parent.subcategories.find((s) => s.slug === slug);
             if (sub) {
-              const subArticles = articles.filter((a) => a.categorySlug === parent.slug);
+              const rawSubArticles = articles.filter((a) => a.categorySlug === parent.slug);
+              const baseList = rawSubArticles.length > 0 ? rawSubArticles : DEMO_ARTICLES.filter((a) => a.categorySlug === parent.slug);
+              const subArticles = isCurtains ? baseList.filter((a) => a.isBehindCurtains) : baseList;
+
               setContext({
                 category: undefined,
                 subcategory: sub,
                 parentCategory: parent,
                 isSubcategory: true,
+                isCurtainsLayer: isCurtains,
+                activeLayer: isCurtains ? 'behind_curtains' : 'all',
                 articles: subArticles,
                 popularArticles: subArticles.filter((a) => a.popular).slice(0, 3),
                 recentArticles: [...subArticles].sort((a, b) => b.lastUpdated.localeCompare(a.lastUpdated)).slice(0, 3),
+                totalCategoryArticles: baseList.length,
+                curtainsArticlesCount: baseList.filter((a) => a.isBehindCurtains).length,
               });
               return;
             }
@@ -212,11 +268,11 @@ export function useResolvedCategory(slug: string) {
         }
 
         // Fallback to demo resolver if no match
-        setContext(demoResolveCategory(slug));
+        setContext(demoResolveCategory(slug, { curtainsOnly: isCurtains, layer: options?.layer }));
       })
       .catch((err) => {
         console.warn('Error resolving category from database:', err);
-        if (isMounted) setContext(demoResolveCategory(slug));
+        if (isMounted) setContext(demoResolveCategory(slug, { curtainsOnly: isCurtains, layer: options?.layer }));
       })
       .finally(() => {
         if (isMounted) setLoading(false);
@@ -225,7 +281,18 @@ export function useResolvedCategory(slug: string) {
     return () => {
       isMounted = false;
     };
-  }, [slug]);
+  }, [slug, isCurtains, options?.layer]);
 
   return { context, loading };
+}
+
+/**
+ * Hook to retrieve all articles classified in Behind the Curtains
+ */
+export function useBehindCurtainsArticles(categorySlug?: string) {
+  return useArticles({
+    categorySlug,
+    layer: 'behind_curtains',
+    isBehindCurtains: true,
+  });
 }

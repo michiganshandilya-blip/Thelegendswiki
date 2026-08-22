@@ -2,7 +2,7 @@
   "entities": {
     "UserProfile": {
       "title": "UserProfile",
-      "description": "Registered contributor or administrator profile",
+      "description": "Registered contributor, admin, or super administrator profile",
       "type": "object",
       "properties": {
         "id": {
@@ -28,8 +28,12 @@
         },
         "role": {
           "type": "string",
-          "enum": ["guest", "registered_user", "editor", "administrator"],
-          "description": "User permission role"
+          "enum": ["user", "admin", "super_admin", "guest", "registered_user", "editor", "administrator"],
+          "description": "User permission role (user, admin, super_admin)"
+        },
+        "disabled": {
+          "type": "boolean",
+          "description": "Whether the user account is restricted or disabled"
         },
         "photoURL": {
           "type": "string",
@@ -39,6 +43,9 @@
           "type": "string",
           "maxLength": 500,
           "description": "Short author bio"
+        },
+        "articlesCount": {
+          "type": "number"
         },
         "createdAt": {
           "type": "string",
@@ -53,7 +60,7 @@
     },
     "Article": {
       "title": "Article",
-      "description": "Comprehensive encyclopedia entry",
+      "description": "Comprehensive encyclopedia entry and research dossier",
       "type": "object",
       "properties": {
         "id": {
@@ -107,7 +114,31 @@
         },
         "status": {
           "type": "string",
-          "enum": ["draft", "pending_review", "published", "archived"]
+          "enum": ["draft", "pending_review", "changes_requested", "published", "rejected", "archived"]
+        },
+        "region": {
+          "type": "string",
+          "description": "Geographic regional categorization"
+        },
+        "moderationNotes": {
+          "type": "string",
+          "description": "Editorial feedback, change requests, or rejection rationale"
+        },
+        "reviewedBy": {
+          "type": "string",
+          "description": "Display name of reviewer/admin"
+        },
+        "reviewedById": {
+          "type": "string",
+          "description": "UID of reviewer/admin"
+        },
+        "reviewedAt": {
+          "type": "string",
+          "description": "Timestamp of editorial review decision"
+        },
+        "submittedAt": {
+          "type": "string",
+          "description": "Timestamp when submitted for review"
         },
         "viewCount": {
           "type": "number",
@@ -164,13 +195,19 @@
     },
     "Revision": {
       "title": "Revision",
-      "description": "Historical snapshot of an article edit",
+      "description": "Historical snapshot of an article edit and content history",
       "type": "object",
       "properties": {
         "id": {
           "type": "string"
         },
         "articleId": {
+          "type": "string"
+        },
+        "articleTitle": {
+          "type": "string"
+        },
+        "articleSlug": {
           "type": "string"
         },
         "editorId": {
@@ -190,11 +227,83 @@
           "minLength": 3,
           "maxLength": 500
         },
+        "actionType": {
+          "type": "string",
+          "enum": ["draft_saved", "submission", "approval", "changes_requested", "rejection", "direct_edit", "restore"]
+        },
+        "moderationNotes": {
+          "type": "string"
+        },
         "createdAt": {
           "type": "string"
         }
       },
       "required": ["id", "articleId", "editorId", "newContent", "changeSummary"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Administrative audit trail recording admin actions, role changes, and system configuration",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "actorUid": {
+          "type": "string"
+        },
+        "actorEmail": {
+          "type": "string"
+        },
+        "actorRole": {
+          "type": "string",
+          "enum": ["user", "admin", "super_admin", "guest", "registered_user", "editor", "administrator"]
+        },
+        "action": {
+          "type": "string"
+        },
+        "targetId": {
+          "type": "string"
+        },
+        "targetType": {
+          "type": "string"
+        },
+        "details": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "actorUid", "actorEmail", "actorRole", "action", "timestamp"]
+    },
+    "SystemSetting": {
+      "title": "SystemSetting",
+      "description": "Global platform configurations and governance policies",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "siteName": {
+          "type": "string"
+        },
+        "requirePeerReview": {
+          "type": "boolean"
+        },
+        "allowPublicSubmissions": {
+          "type": "boolean"
+        },
+        "announcementBanner": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        },
+        "updatedBy": {
+          "type": "string"
+        }
+      },
+      "required": ["id"]
     },
     "Bookmark": {
       "title": "Bookmark",
@@ -251,11 +360,11 @@
   "firestore": {
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/UserProfile" },
-      "description": "Stores user profiles with role-based permissions"
+      "description": "Stores user profiles with User, Admin, and Super Admin RBAC"
     },
     "/articles/{articleId}": {
       "schema": { "$ref": "#/entities/Article" },
-      "description": "Stores encyclopedia articles and their current content"
+      "description": "Stores encyclopedia articles and investigation dossiers"
     },
     "/categories/{categoryId}": {
       "schema": { "$ref": "#/entities/Category" },
@@ -263,7 +372,15 @@
     },
     "/revisions/{revisionId}": {
       "schema": { "$ref": "#/entities/Revision" },
-      "description": "Immutable version history and audit log for articles"
+      "description": "Historical snapshots and article edits"
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Comprehensive administrative audit logs"
+    },
+    "/system_settings/{settingId}": {
+      "schema": { "$ref": "#/entities/SystemSetting" },
+      "description": "Global system settings, moderation flags, and permissions"
     },
     "/bookmarks/{bookmarkId}": {
       "schema": { "$ref": "#/entities/Bookmark" },

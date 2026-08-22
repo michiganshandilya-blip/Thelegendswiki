@@ -66,27 +66,26 @@ export const TableOfContents: React.FC<TableOfContentsProps> = ({
     <nav
       id="article-table-of-contents"
       aria-label="Table of contents"
-      className={`bg-[#0e1422] border border-[#1e293b] rounded-sm p-3.5 sm:p-4 text-xs ${className}`}
+      className={`bg-[#f8f9fa] border border-[#a2a9b1] rounded-sm p-3.5 text-xs inline-block min-w-[240px] max-w-md ${className}`}
     >
-      <div className="flex items-center justify-between font-bold text-slate-200 pb-2 border-b border-[#1e293b]">
-        <span className="inline-flex items-center gap-1.5 font-display text-sm font-bold text-slate-100">
-          <ListOrdered size={15} className="text-sky-400" />
+      <div className="flex items-center justify-between font-bold text-[#101418] pb-1.5 border-b border-[#eaecf0]">
+        <span className="inline-flex items-center gap-1.5 font-serif text-sm font-bold text-[#101418]">
+          <ListOrdered size={14} className="text-[#3366cc]" />
           Contents
         </span>
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className="text-slate-400 hover:text-slate-100 inline-flex items-center gap-1 font-sans text-xs px-1.5 py-0.5 rounded cursor-pointer transition-colors"
+          className="text-[#3366cc] hover:underline inline-flex items-center gap-1 font-sans text-xs px-1 cursor-pointer"
           aria-expanded={isOpen}
           aria-label={isOpen ? 'Collapse table of contents' : 'Expand table of contents'}
         >
-          <span className="text-[11px] font-medium">{isOpen ? 'Hide' : 'Show'}</span>
-          {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          <span className="text-[11px] font-medium">[{isOpen ? 'hide' : 'show'}]</span>
         </button>
       </div>
 
       {isOpen && (
-        <ol className="mt-3 space-y-1.5 pl-4 list-decimal text-slate-400 marker:text-slate-500 marker:font-mono">
+        <ol className="mt-2.5 space-y-1 pl-4 list-decimal text-[#3366cc] marker:text-[#54595d] marker:font-mono">
           {sections.map((section) => {
             const isActive = activeSectionId === section.id;
             return (
@@ -94,8 +93,8 @@ export const TableOfContents: React.FC<TableOfContentsProps> = ({
                 <a
                   href={`#${section.id}`}
                   onClick={(e) => scrollToSection(e, section.id)}
-                  className={`block py-0.5 hover:text-sky-400 hover:underline transition-colors ${
-                    isActive ? 'font-bold text-sky-400' : 'text-slate-300'
+                  className={`hover:underline transition-colors ${
+                    isActive ? 'font-bold text-[#101418]' : 'text-[#3366cc]'
                   }`}
                 >
                   {section.title}
@@ -103,7 +102,7 @@ export const TableOfContents: React.FC<TableOfContentsProps> = ({
 
                 {/* Subsections if available */}
                 {section.subsections && section.subsections.length > 0 && (
-                  <ol className="mt-1 space-y-1 pl-4 list-[decimal] text-slate-400 marker:text-slate-600">
+                  <ol className="mt-1 space-y-1 pl-4 list-decimal text-[#3366cc] marker:text-[#72777d]">
                     {section.subsections.map((sub) => {
                       const isSubActive = activeSectionId === sub.id;
                       return (
@@ -111,8 +110,8 @@ export const TableOfContents: React.FC<TableOfContentsProps> = ({
                           <a
                             href={`#${sub.id}`}
                             onClick={(e) => scrollToSection(e, sub.id)}
-                            className={`block py-0.5 hover:text-sky-400 hover:underline transition-colors ${
-                              isSubActive ? 'font-bold text-sky-400' : 'text-slate-400'
+                            className={`hover:underline transition-colors ${
+                              isSubActive ? 'font-bold text-[#101418]' : 'text-[#3366cc]'
                             }`}
                           >
                             {sub.title}
@@ -127,15 +126,15 @@ export const TableOfContents: React.FC<TableOfContentsProps> = ({
           })}
 
           {hasReferences && (
-            <li className="leading-snug pt-1 border-t border-[#1e293b] mt-2">
+            <li className="leading-snug pt-1 border-t border-[#eaecf0] mt-1.5">
               <a
                 href="#references"
                 onClick={(e) => scrollToSection(e, 'references')}
-                className={`block py-0.5 hover:text-sky-400 hover:underline transition-colors ${
-                  activeSectionId === 'references' ? 'font-bold text-sky-400' : 'text-slate-300'
+                className={`hover:underline transition-colors ${
+                  activeSectionId === 'references' ? 'font-bold text-[#101418]' : 'text-[#3366cc]'
                 }`}
               >
-                References & Citations
+                References &amp; Citations
               </a>
             </li>
           )}
@@ -145,8 +144,8 @@ export const TableOfContents: React.FC<TableOfContentsProps> = ({
               <a
                 href="#related-articles"
                 onClick={(e) => scrollToSection(e, 'related-articles')}
-                className={`block py-0.5 hover:text-sky-400 hover:underline transition-colors ${
-                  activeSectionId === 'related-articles' ? 'font-bold text-sky-400' : 'text-slate-300'
+                className={`hover:underline transition-colors ${
+                  activeSectionId === 'related-articles' ? 'font-bold text-[#101418]' : 'text-[#3366cc]'
                 }`}
               >
                 Related Articles
@@ -158,4 +157,3 @@ export const TableOfContents: React.FC<TableOfContentsProps> = ({
     </nav>
   );
 };
-

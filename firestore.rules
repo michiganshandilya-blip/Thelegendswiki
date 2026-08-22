@@ -2,155 +2,240 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ===============================================================
-    // Helper Functions
-    // ===============================================================
-
-    function isAuthenticated() {
-      return request.auth != null;
+    // ==========================================
+    // 0. GLOBAL SAFETY NET (DEFAULT DENY)
+    // ==========================================
+    match /{document=**} {
+      allow read, write: if false;
     }
 
-    function isUser(userId) {
+    // ==========================================
+    // HELPER FUNCTIONS & ROLE-BASED ACCESS CONTROL
+    // ==========================================
+
+    function isAuthenticated() {
+      return request.auth != null && request.auth.uid != null;
+    }
+
+    function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // Role resolution helpers
-    function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    // Designated Initial Super Admin Email
+    function isDesignatedSuperAdminEmail() {
+      return isAuthenticated() && request.auth.token.email == 'michiganshandilya@gmail.com';
     }
 
-    function hasRole(role) {
-      return isAuthenticated() && 
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        getUserData().role == role;
-    }
-
-    function isEditor() {
-      return hasRole('editor') || hasRole('administrator');
-    }
-
-    function isAdmin() {
-      return hasRole('administrator');
-    }
-
-    function isRegisteredUser() {
+    // Direct Bootstrapped Admin Verification
+    function isBootstrappedAdmin() {
       return isAuthenticated() && (
-        hasRole('registered_user') || 
-        hasRole('editor') || 
-        hasRole('administrator')
+        isDesignatedSuperAdminEmail() ||
+        request.auth.token.email == 'editor@thelegendswiki.org' ||
+        request.auth.token.email == 'admin@thelegendswiki.org'
       );
     }
 
-    // ===============================================================
-    // 1. Users Collection
-    // ===============================================================
+    // Role resolution from users collection
+    function getUserData() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        : null;
+    }
+
+    function getUserRole() {
+      let data = getUserData();
+      return isDesignatedSuperAdminEmail() 
+        ? 'super_admin' 
+        : (data != null ? data.role : 'guest');
+    }
+
+    function isUserDisabled() {
+      let data = getUserData();
+      return !isDesignatedSuperAdminEmail() && data != null && data.disabled == true;
+    }
+
+    function isRegisteredUser() {
+      return isAuthenticated() && !isUserDisabled();
+    }
+
+    function isSuperAdmin() {
+      let role = getUserRole();
+      return isDesignatedSuperAdminEmail() || (isRegisteredUser() && role == 'super_admin');
+    }
+
+    function isAdmin() {
+      let role = getUserRole();
+      return isSuperAdmin() || (isRegisteredUser() && (
+        role == 'admin' ||
+        role == 'editor' ||
+        role == 'administrator'
+      ));
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // ==========================================
+    // 1. USERS COLLECTION
+    // ==========================================
     match /users/{userId} {
-      // Anyone can read public user profile data
-      allow read: if true;
+      // Public reading for author attribution & scholar profiles
+      allow read: if isValidId(userId);
 
-      // Users can create their own initial profile as registered_user or guest
-      allow create: if isUser(userId) && 
-        (request.resource.data.role == 'registered_user' || request.resource.data.role == 'guest');
+      // New accounts are registered strictly as role = 'user' or 'registered_user'
+      // A normal user can never assign themselves 'admin' or 'super_admin'
+      // Super Admin can initialize or create user records with authorized role
+      allow create: if isValidId(userId) && (
+        isSuperAdmin() ||
+        (isOwner(userId) && (
+          isDesignatedSuperAdminEmail() || (
+            !request.resource.data.keys().hasAny(['role']) ||
+            request.resource.data.role == 'user' ||
+            request.resource.data.role == 'registered_user' ||
+            request.resource.data.role == 'guest'
+          )
+        ))
+      );
 
-      // Users can update their profile, but CANNOT self-escalate role unless they are admin
-      allow update: if (isUser(userId) && request.resource.data.role == resource.data.role) || isAdmin();
-
-      // Only administrators can delete users
-      allow delete: if isAdmin();
-    }
-
-    // ===============================================================
-    // 2. Articles Collection
-    // ===============================================================
-    match /articles/{articleId} {
-      // Public can only read published articles. Authors, editors, and admins can read drafts & reviews
-      allow read: if resource.data.status == 'published' || 
-        (isAuthenticated() && (resource.data.authorId == request.auth.uid || isEditor()));
-
-      // Registered users can create drafts and pending reviews. Only editors/admins can create published articles.
-      allow create: if isRegisteredUser() && 
-        request.resource.data.title is string &&
-        request.resource.data.slug is string &&
-        request.resource.data.authorId == request.auth.uid &&
-        (
-          (request.resource.data.status in ['draft', 'pending_review']) ||
-          (isEditor() && request.resource.data.status in ['draft', 'pending_review', 'published', 'archived'])
-        );
-
-      // Authors can update their own drafts/pending reviews (authorId immutable, status locked to draft/pending); Editors/Admins can publish or modify any article
-      allow update: if (
-        isAuthenticated() && (
-          (
-            resource.data.authorId == request.auth.uid &&
-            request.resource.data.authorId == resource.data.authorId &&
-            request.resource.data.status in ['draft', 'pending_review']
-          ) ||
-          isEditor()
+      // Updating profiles:
+      // 1. Super Admin can manage all accounts, promote User -> Admin, or Admin -> User.
+      //    (Protected Super Admin accounts cannot be demoted)
+      // 2. Admin can manage regular user moderation status (e.g. suspend/restrict), but CANNOT change roles,
+      //    CANNOT edit super_admin profiles, and CANNOT elevate any account.
+      // 3. Regular users can only update their own non-security profile fields (cannot change 'role', 'disabled', or 'id').
+      allow update: if isValidId(userId) && (
+        // Super Admin permissions
+        (isSuperAdmin() && (
+          // Protect initial super admin account from role change
+          (!resource.data.keys().hasAny(['email']) || resource.data.email != 'michiganshandilya@gmail.com') ||
+          request.resource.data.role == 'super_admin'
+        )) ||
+        // Admin moderation permissions on regular users (cannot change roles, cannot touch super_admins)
+        (isAdmin() && !isSuperAdmin() && (
+          resource.data.role != 'super_admin' &&
+          (!request.resource.data.keys().hasAny(['role']) || request.resource.data.role == resource.data.role) &&
+          (!resource.data.keys().hasAny(['email']) || resource.data.email != 'michiganshandilya@gmail.com')
+        )) ||
+        // Self profile update by regular user
+        (isOwner(userId) && !isUserDisabled() &&
+          (!resource.data.keys().hasAny(['id']) || request.resource.data.id == resource.data.id) &&
+          (!resource.data.keys().hasAny(['role']) || request.resource.data.role == resource.data.role) &&
+          (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'disabled']))
         )
-      ) ||
-      // Allow viewCount and views telemetry increments
-      (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewCount', 'views']));
+      );
 
-      // Authors can delete their own drafts; Administrators can delete any article
-      allow delete: if (isAuthenticated() && resource.data.authorId == request.auth.uid && resource.data.status == 'draft') || isAdmin();
+      // Only Super Admin can delete user profile records
+      allow delete: if isValidId(userId) && isSuperAdmin() && resource.data.email != 'michiganshandilya@gmail.com';
     }
 
-    // ===============================================================
-    // 3. Categories Collection
-    // ===============================================================
-    match /categories/{categoryId} {
-      // Categories are public for all users to browse
-      allow read: if true;
+    // ==========================================
+    // 2. ARTICLES COLLECTION
+    // ==========================================
+    match /articles/{articleId} {
+      // Published articles are public. Admins and Super Admins can view all. Authors can view their own.
+      allow read: if isValidId(articleId) && (
+        resource.data.status == 'published'
+        || isAdmin()
+        || (isAuthenticated() && resource.data.authorId == request.auth.uid)
+      );
 
-      // Only editors and administrators can modify taxonomy
-      allow create, update, delete: if isEditor();
+      // Registered users can create drafts or submit contributions.
+      // Admins and Super Admins can create published entries directly.
+      allow create: if isValidId(articleId) && isRegisteredUser() && (
+        (request.resource.data.authorId == request.auth.uid &&
+          (request.resource.data.status == 'draft' || request.resource.data.status == 'pending_review'))
+        || isAdmin()
+      );
+
+      // Updating articles:
+      // - Admins and Super Admins can update any article (approve, publish, request changes, reject, edit)
+      // - Authors can update their own drafts, pending reviews, and change-requested articles
+      allow update: if isValidId(articleId) && (
+        isAdmin() || (
+          isRegisteredUser() &&
+          resource.data.authorId == request.auth.uid &&
+          request.resource.data.authorId == request.auth.uid &&
+          request.resource.data.id == resource.data.id &&
+          request.resource.data.status != 'published' &&
+          request.resource.data.status != 'rejected'
+        )
+      );
+
+      // Admins and Super Admins can delete articles
+      allow delete: if isValidId(articleId) && isAdmin();
     }
 
-    // ===============================================================
-    // 4. Revisions Collection
-    // ===============================================================
+    // ==========================================
+    // 3. REVISIONS COLLECTION
+    // ==========================================
     match /revisions/{revisionId} {
-      // Revision history is publicly viewable for transparency
-      allow read: if true;
+      allow read: if isValidId(revisionId);
 
-      // Registered users, editors, and admins can record revisions
-      allow create: if isRegisteredUser() && 
-        request.resource.data.editorId == request.auth.uid &&
-        request.resource.data.articleId is string &&
-        request.resource.data.newContent is string;
+      allow create: if isValidId(revisionId) && isRegisteredUser() && (
+        request.resource.data.editorId == request.auth.uid ||
+        isAdmin()
+      );
 
-      // Revisions are immutable historical records; only admin can delete
       allow update: if false;
-      allow delete: if isAdmin();
+
+      allow delete: if isValidId(revisionId) && isAdmin();
     }
 
-    // ===============================================================
-    // 5. Bookmarks Collection
-    // ===============================================================
+    // ==========================================
+    // 4. ADMINISTRATIVE AUDIT LOGS
+    // ==========================================
+    match /audit_logs/{logId} {
+      // Admins and Super Admins can read audit logs
+      allow read: if isValidId(logId) && isAdmin();
+
+      // Admins and Super Admins record audit log entries for moderation, roles, settings
+      allow create: if isValidId(logId) && isAdmin() && request.resource.data.actorUid == request.auth.uid;
+
+      // Audit logs are strictly immutable
+      allow update: if false;
+
+      // Only Super Admin can purge audit logs
+      allow delete: if isValidId(logId) && isSuperAdmin();
+    }
+
+    // ==========================================
+    // 5. SYSTEM SETTINGS
+    // ==========================================
+    match /system_settings/{settingId} {
+      // Admins and Super Admins can view system settings
+      allow read: if isValidId(settingId) && isAdmin();
+
+      // Only Super Admin can modify system settings
+      allow write: if isValidId(settingId) && isSuperAdmin();
+    }
+
+    // ==========================================
+    // 6. CATEGORIES & TAXONOMY
+    // ==========================================
+    match /categories/{categoryId} {
+      allow read: if isValidId(categoryId);
+      allow write: if isValidId(categoryId) && isAdmin();
+    }
+
+    // ==========================================
+    // 7. BOOKMARKS COLLECTION
+    // ==========================================
     match /bookmarks/{bookmarkId} {
-      // Users can only view their own bookmarks
-      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
-
-      // Users can only add bookmarks for themselves
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-
-      // Users can only delete their own bookmarks
-      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow read: if isValidId(bookmarkId) && isRegisteredUser() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(bookmarkId) && isRegisteredUser() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isValidId(bookmarkId) && isRegisteredUser() && resource.data.userId == request.auth.uid;
       allow update: if false;
     }
 
-    // ===============================================================
-    // 6. Reports Collection
-    // ===============================================================
+    // ==========================================
+    // 8. REPORTS COLLECTION
+    // ==========================================
     match /reports/{reportId} {
-      // Authenticated users can submit reports
-      allow create: if isAuthenticated() && 
-        request.resource.data.reporterId == request.auth.uid &&
-        request.resource.data.articleId is string &&
-        request.resource.data.reason is string;
-
-      // Only editors and administrators can inspect and resolve moderation reports
-      allow read, update, delete: if isEditor();
+      allow create: if isValidId(reportId) && isRegisteredUser() && request.resource.data.reporterId == request.auth.uid;
+      allow read: if isValidId(reportId) && (isAdmin() || (isAuthenticated() && resource.data.reporterId == request.auth.uid));
+      allow update: if isValidId(reportId) && isAdmin();
+      allow delete: if isValidId(reportId) && isAdmin();
     }
   }
 }

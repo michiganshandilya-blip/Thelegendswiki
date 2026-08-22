@@ -12,14 +12,14 @@ export const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ items, className = '' 
   const { navigate } = useRouter();
 
   return (
-    <nav aria-label="Breadcrumb" className={`flex items-center text-xs text-slate-400 overflow-x-auto whitespace-nowrap py-1 ${className}`}>
+    <nav aria-label="Breadcrumb" className={`flex items-center text-xs text-[#54595d] overflow-x-auto whitespace-nowrap py-1 ${className}`}>
       <button
         type="button"
         onClick={() => navigate('/')}
-        className="hover:text-sky-400 inline-flex items-center gap-1 focus:outline-none transition-colors text-slate-400 cursor-pointer"
+        className="hover:text-[#3366cc] inline-flex items-center gap-1 focus:outline-none transition-colors text-[#54595d] cursor-pointer"
         aria-label="TheLegendsWiki Home"
       >
-        <Home size={12} className="text-slate-400" />
+        <Home size={12} className="text-[#72777d]" />
         <span>Main</span>
       </button>
 
@@ -27,16 +27,16 @@ export const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ items, className = '' 
         const isLast = index === items.length - 1;
         return (
           <React.Fragment key={index}>
-            <ChevronRight size={12} className="mx-1.5 text-slate-600 shrink-0" />
+            <ChevronRight size={11} className="mx-1.5 text-[#a2a9b1] shrink-0" />
             {isLast || !item.path ? (
-              <span className="font-semibold text-slate-200 truncate max-w-[200px] sm:max-w-none" aria-current="page">
+              <span className="font-semibold text-[#101418] truncate max-w-[220px] sm:max-w-none" aria-current="page">
                 {item.label}
               </span>
             ) : (
               <button
                 type="button"
                 onClick={() => item.path && navigate(item.path)}
-                className="hover:text-sky-400 hover:underline focus:outline-none text-slate-400 transition-colors cursor-pointer"
+                className="hover:text-[#3366cc] hover:underline focus:outline-none text-[#3366cc] transition-colors cursor-pointer"
               >
                 {item.label}
               </button>
@@ -47,4 +47,3 @@ export const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ items, className = '' 
     </nav>
   );
 };
-

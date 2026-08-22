@@ -2,12 +2,17 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
+    // Default deny all undefined paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
     function isAuthenticated() {
-      return request.auth != null;
+      return request.auth != null && request.auth.uid != null;
     }
 
     function isImage() {
-      return request.resource.contentType.matches('image/.*');
+      return request.resource.contentType.matches('image/(jpeg|jpg|png|webp|gif|svg\\+xml)');
     }
 
     function isUnder5MB() {
@@ -19,8 +24,18 @@ service firebase.storage {
       // Public read access for encyclopedia images
       allow read: if true;
 
-      // Authenticated users can upload article media under 5MB
+      // Authenticated users can upload article media under 5MB with valid image MIME type
       allow write: if isAuthenticated() && isImage() && isUnder5MB();
+    }
+
+    // User profile avatar storage location
+    match /avatars/{userId}/{imageFile} {
+      // Public read access for avatars
+      allow read: if true;
+
+      // Users can only upload and modify their own profile avatar under 5MB with valid image MIME type
+      allow write: if isAuthenticated() && request.auth.uid == userId && isImage() && isUnder5MB();
     }
   }
 }
+

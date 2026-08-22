@@ -1,41 +1,54 @@
 @import "tailwindcss";
+@import "./styles/dark-theme.css";
+@import "./styles/print.css";
 
 @layer base {
   :root {
-    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     --font-display: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+    --font-serif: 'Lora', Georgia, 'Times New Roman', serif;
     --font-legend: 'Cinzel', Georgia, serif;
+    --font-handwritten: 'Caveat', cursive, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
 
-    /* Theme Tokens */
-    --color-bg-base: #080c14;
-    --color-bg-surface: #0e1422;
-    --color-bg-surface-elevated: #141c2e;
-    --color-bg-surface-active: #1a253c;
-    --color-border-subtle: #1e293b;
-    --color-border-accent: #2563eb;
-    --color-accent-blue: #38bdf8;
-    --color-accent-violet: #818cf8;
-    --color-text-primary: #f8fafc;
-    --color-text-secondary: #94a3b8;
+    /* Codex Light / Editorial Theme Tokens */
+    --color-bg-base: #ffffff;
+    --color-bg-surface: #ffffff;
+    --color-bg-surface-elevated: #f8fafc;
+    --color-bg-surface-active: #f1f5f9;
+    --color-border-subtle: #eaecf0;
+    --color-border-accent: #3366cc;
+    --color-accent-blue: #2563eb;
+    --color-accent-gold: #b45309;
+    --color-text-primary: #101418;
+    --color-text-secondary: #475569;
     --color-text-muted: #64748b;
   }
 
   body {
     font-family: var(--font-sans);
-    color: #cbd5e1;
-    background-color: #080c14;
+    color: #101418;
+    background-color: #ffffff;
     line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
   }
 
   h1, h2, h3, h4 {
-    font-family: var(--font-display);
-    color: #f8fafc;
+    font-family: var(--font-serif);
+    color: #0f172a;
     letter-spacing: -0.015em;
   }
 
   .font-legend {
     font-family: var(--font-legend);
+  }
+
+  .font-handwritten {
+    font-family: var(--font-handwritten);
+  }
+
+  .font-serif {
+    font-family: var(--font-serif);
   }
 
   .font-mono {
@@ -44,96 +57,169 @@
 }
 
 /* ==================================================
-   ENCYCLOPEDIA ARTICLE BODY STYLING (DARK TECH)
+   BEHIND THE CURTAINS ATMOSPHERIC VISUAL EFFECTS
+   (Sophisticated Archival / Investigative Atmosphere)
+   ================================================== */
+.curtains-atmosphere {
+  background-color: #060911;
+  background-image: 
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(217, 119, 6, 0.12), transparent 70%),
+    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.03) 1px, transparent 0),
+    linear-gradient(to right, rgba(0, 0, 0, 0.5) 0%, transparent 12%, transparent 88%, rgba(0, 0, 0, 0.5) 100%),
+    linear-gradient(180deg, #070b14 0%, #0a0f1d 40%, #060911 100%);
+  background-size: 100% 100%, 28px 28px, 100% 100%, 100% 100%;
+  color: #f1f5f9;
+  position: relative;
+}
+
+.curtains-dossier-wrapper {
+  position: relative;
+  background-color: #060911;
+  background-image: 
+    radial-gradient(circle at 50% 0%, rgba(245, 158, 11, 0.08) 0%, transparent 60%),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.4) 0%, transparent 8%, transparent 92%, rgba(0, 0, 0, 0.4) 100%),
+    radial-gradient(circle at 1px 1px, rgba(245, 158, 11, 0.035) 1px, transparent 0);
+  background-size: 100% 100%, 100% 100%, 24px 24px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.85);
+}
+
+.curtain-vignette-sides {
+  box-shadow: 
+    inset 24px 0 36px -16px rgba(0, 0, 0, 0.9),
+    inset -24px 0 36px -16px rgba(0, 0, 0, 0.9);
+}
+
+.curtain-dossier-card {
+  background: linear-gradient(180deg, #0f172a 0%, #090e1a 100%);
+  border: 1px solid rgba(217, 119, 6, 0.28);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+}
+
+.curtain-dossier-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(245, 158, 11, 0.6), transparent);
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+
+.curtain-dossier-card:hover {
+  border-color: rgba(245, 158, 11, 0.65);
+  box-shadow: 0 10px 32px -4px rgba(0, 0, 0, 0.75), 0 0 20px rgba(245, 158, 11, 0.15);
+  transform: translateY(-2px);
+}
+
+.curtain-dossier-card:hover::before {
+  opacity: 1;
+}
+
+.archival-stamp {
+  font-family: var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-style: solid;
+  border-width: 1px;
+  border-radius: 2px;
+}
+
+/* Subtle curtain drape accent */
+.curtain-peel-accent {
+  background: linear-gradient(90deg, transparent 0%, rgba(217, 119, 6, 0.2) 50%, transparent 100%);
+}
+
+@keyframes curtainFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-curtain-reveal {
+  animation: curtainFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ==================================================
+   ENCYCLOPEDIA ARTICLE BODY STYLING (SCHOLARLY CODEX)
    ================================================== */
 .encyclopedia-article-body {
-  color: #cbd5e1;
-  font-size: 0.9375rem;
-  line-height: 1.75;
+  color: #1e293b;
+  font-size: 0.965rem;
+  line-height: 1.85;
 }
 
 .encyclopedia-article-body p {
   margin-bottom: 1.25rem;
-  line-height: 1.8;
-  color: #cbd5e1;
+  line-height: 1.85;
+  color: #1e293b;
 }
 
 .encyclopedia-article-body h2 {
-  font-family: var(--font-display);
+  font-family: var(--font-serif);
   font-size: 1.45rem;
   font-weight: 700;
-  color: #f8fafc;
-  border-bottom: 1px solid #1e293b;
-  padding-bottom: 0.5rem;
+  color: #0f172a;
+  border-bottom: 1px solid #cbd5e1;
+  padding-bottom: 0.4rem;
   margin-top: 2.25rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0.95rem;
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
 .encyclopedia-article-body h3 {
-  font-family: var(--font-display);
+  font-family: var(--font-serif);
   font-size: 1.15rem;
   font-weight: 600;
-  color: #e2e8f0;
-  margin-top: 1.75rem;
+  color: #1e293b;
+  margin-top: 1.65rem;
   margin-bottom: 0.75rem;
 }
 
 .encyclopedia-article-body a {
-  color: #38bdf8;
+  color: #2563eb;
   text-decoration: none;
-  border-bottom: 1px dashed rgba(56, 189, 248, 0.4);
+  border-bottom: 1px dotted rgba(37, 99, 235, 0.45);
   transition: all 0.15s ease;
 }
 
 .encyclopedia-article-body a:hover {
-  color: #7dd3fc;
+  color: #1d4ed8;
+  text-decoration: underline;
   border-bottom-style: solid;
-  border-bottom-color: #38bdf8;
-  text-shadow: 0 0 8px rgba(56, 189, 248, 0.3);
 }
 
 .encyclopedia-article-body strong {
-  color: #f1f5f9;
+  color: #0f172a;
   font-weight: 600;
 }
 
 .encyclopedia-article-body blockquote {
-  border-left: 3px solid #3b82f6;
-  background: rgba(14, 20, 34, 0.7);
-  padding: 0.85rem 1.25rem;
-  margin: 1.25rem 0;
-  border-radius: 0 0.25rem 0.25rem 0;
-  color: #94a3b8;
+  border-left: 3px solid #b45309;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-left-width: 4px;
+  border-left-color: #b45309;
+  padding: 0.95rem 1.35rem;
+  margin: 1.35rem 0;
+  border-radius: 2px;
+  color: #334155;
   font-style: italic;
 }
 
 /* ==================================================
-   SUBTLE TECH TEXTURE & BACKGROUND ACCENTS
-   ================================================== */
-.tech-grid-pattern {
-  background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-  background-size: 32px 32px;
-}
-
-.tech-radial-glow {
-  background: radial-gradient(circle at 50% 0%, rgba(37, 99, 235, 0.12) 0%, rgba(8, 12, 20, 0) 70%);
-}
-
-.tech-glow-blue {
-  box-shadow: 0 0 20px rgba(56, 189, 248, 0.15);
-}
-
-.tech-glow-violet {
-  box-shadow: 0 0 20px rgba(129, 140, 248, 0.15);
-}
-
-/* ==================================================
-   DARK TECH SCROLLBARS
+   CLEAN LIGHT SCROLLBARS
    ================================================== */
 ::-webkit-scrollbar {
   width: 6px;
@@ -141,14 +227,114 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #080c14;
+  background: #f1f5f9;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
+  background: #cbd5e1;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3b82f6;
+  background: #94a3b8;
 }
+
+/* ==================================================
+   FALLING LEAVES DECORATIVE ANIMATIONS
+   (Restrained, Organic Autumn Atmospheric Drift)
+   ================================================== */
+@keyframes leafFall1 {
+  0% {
+    transform: translate3d(0, -15px, 0) rotate(0deg);
+    opacity: 0;
+  }
+  8% {
+    opacity: 0.85;
+  }
+  30% {
+    transform: translate3d(18px, 45px, 0) rotate(25deg);
+  }
+  58% {
+    transform: translate3d(-14px, 100px, 0) rotate(-15deg);
+  }
+  85% {
+    opacity: 0.7;
+  }
+  100% {
+    transform: translate3d(12px, 175px, 0) rotate(40deg);
+    opacity: 0;
+  }
+}
+
+@keyframes leafFall2 {
+  0% {
+    transform: translate3d(0, -15px, 0) rotate(-20deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.75;
+  }
+  35% {
+    transform: translate3d(-20px, 50px, 0) rotate(-45deg);
+  }
+  65% {
+    transform: translate3d(16px, 110px, 0) rotate(15deg);
+  }
+  88% {
+    opacity: 0.65;
+  }
+  100% {
+    transform: translate3d(-10px, 185px, 0) rotate(-35deg);
+    opacity: 0;
+  }
+}
+
+@keyframes leafFall3 {
+  0% {
+    transform: translate3d(0, -15px, 0) rotate(15deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.7;
+  }
+  40% {
+    transform: translate3d(22px, 60px, 0) rotate(35deg);
+  }
+  70% {
+    transform: translate3d(-16px, 120px, 0) rotate(-20deg);
+  }
+  85% {
+    opacity: 0.6;
+  }
+  100% {
+    transform: translate3d(8px, 180px, 0) rotate(25deg);
+    opacity: 0;
+  }
+}
+
+.animate-leaf-fall-1 {
+  animation: leafFall1 13s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform, opacity;
+}
+
+.animate-leaf-fall-2 {
+  animation: leafFall2 15s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform, opacity;
+}
+
+.animate-leaf-fall-3 {
+  animation: leafFall3 16s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-leaf-fall-1,
+  .animate-leaf-fall-2,
+  .animate-leaf-fall-3 {
+    animation: none !important;
+    opacity: 0.35 !important;
+    transform: none !important;
+  }
+}
+
+

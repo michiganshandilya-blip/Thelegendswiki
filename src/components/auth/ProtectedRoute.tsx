@@ -2,7 +2,7 @@ import React, { ReactNode } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useRouter } from '../../context/RouterContext';
 import { Button } from '../common/Button';
-import { ShieldAlert, Lock, ArrowLeft, LogIn, UserPlus } from 'lucide-react';
+import { ShieldAlert, Lock, ArrowLeft, LogIn, UserPlus, Shield } from 'lucide-react';
 import { UserRole } from '../../types';
 
 interface ProtectedRouteProps {
@@ -14,22 +14,22 @@ interface ProtectedRouteProps {
 
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   children,
-  requiredRole = 'registered_user',
+  requiredRole = 'user',
   fallbackTitle,
   fallbackDescription,
 }) => {
-  const { isAuthenticated, role, loading } = useAuth();
+  const { isAuthenticated, role, isSuperAdmin, isAdmin, loading, userProfile, currentUser } = useAuth();
   const { navigate } = useRouter();
 
   if (loading) {
     return (
       <div className="min-h-[360px] flex flex-col items-center justify-center space-y-4 py-12">
         <div className="relative w-10 h-10">
-          <div className="absolute inset-0 rounded-full border-2 border-slate-700" />
-          <div className="absolute inset-0 rounded-full border-2 border-t-blue-500 border-r-transparent border-b-transparent border-l-transparent animate-spin" />
+          <div className="absolute inset-0 rounded-full border-2 border-slate-200" />
+          <div className="absolute inset-0 rounded-full border-2 border-t-[#3366cc] border-r-transparent border-b-transparent border-l-transparent animate-spin" />
         </div>
-        <span className="text-xs font-mono text-slate-400 uppercase tracking-widest">
-          Authenticating Archival Clearance...
+        <span className="text-xs font-mono text-[#54595d] uppercase tracking-widest">
+          Verifying Security Clearance...
         </span>
       </div>
     );
@@ -38,23 +38,21 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   // 1. Unauthenticated case
   if (!isAuthenticated) {
     return (
-      <div className="max-w-xl mx-auto my-12 bg-[#0e1424] border border-slate-800 rounded-sm p-6 sm:p-8 text-center space-y-6 shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-48 h-48 bg-radial from-blue-600/10 via-transparent to-transparent pointer-events-none" />
-        
-        <div className="mx-auto w-12 h-12 rounded-sm bg-blue-950/80 border border-blue-600/40 flex items-center justify-center text-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.3)]">
+      <div className="max-w-xl mx-auto my-12 bg-[#ffffff] border border-[#a2a9b1] rounded-sm p-6 sm:p-8 text-center space-y-6 shadow-xs relative overflow-hidden">
+        <div className="mx-auto w-12 h-12 rounded-sm bg-blue-50 border border-blue-200 flex items-center justify-center text-[#3366cc] shadow-xs">
           <Lock size={22} />
         </div>
 
         <div className="space-y-2">
-          <div className="inline-block text-[10px] font-mono font-bold uppercase tracking-wider text-blue-400 bg-blue-950/60 px-2.5 py-0.5 rounded-sm border border-blue-500/30">
+          <div className="inline-block text-[10px] font-mono font-bold uppercase tracking-wider text-[#3366cc] bg-blue-50 px-2.5 py-0.5 rounded-sm border border-blue-200">
             Authentication Required
           </div>
-          <h2 className="text-xl sm:text-2xl font-bold text-slate-100 font-display">
-            {fallbackTitle || 'Contributor Access Restricted'}
+          <h2 className="text-xl sm:text-2xl font-bold text-[#101418] font-serif">
+            {fallbackTitle || 'Access Restricted'}
           </h2>
-          <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto leading-relaxed">
+          <p className="text-xs sm:text-sm text-[#54595d] max-w-md mx-auto leading-relaxed font-sans">
             {fallbackDescription ||
-              'You must be signed in with a verified researcher account to access this curation workspace or contribute to TheLegendsWiki codex.'}
+              'You must be signed in with a verified researcher or administrator account to access this system section.'}
           </p>
         </div>
 
@@ -69,21 +67,21 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
             Log In to Continue
           </Button>
           <Button
-            variant="outline"
+            variant="secondary"
             size="md"
             onClick={() => navigate('/signup')}
             icon={<UserPlus size={16} />}
             className="w-full sm:w-auto"
           >
-            Create Researcher Account
+            Create Contributor Account
           </Button>
         </div>
 
-        <div className="pt-4 border-t border-slate-800/80">
+        <div className="pt-4 border-t border-[#eaecf0]">
           <button
             type="button"
             onClick={() => navigate('/')}
-            className="text-xs text-slate-400 hover:text-blue-400 inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="text-xs text-[#54595d] hover:text-[#3366cc] inline-flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             <ArrowLeft size={13} /> Return to Main Encyclopedia
           </button>
@@ -92,55 +90,83 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     );
   }
 
-  // 2. Role clearance check
+  // 2. Role hierarchy verification (USER -> ADMIN -> SUPER ADMIN)
   const roleHierarchy: Record<UserRole, number> = {
     guest: 0,
+    user: 1,
     registered_user: 1,
+    admin: 2,
     editor: 2,
-    administrator: 3,
+    administrator: 2,
+    super_admin: 3,
   };
 
-  const userLevel = roleHierarchy[role] || 0;
+  const userLevel = isSuperAdmin ? 3 : isAdmin ? 2 : (roleHierarchy[role] || 1);
   const requiredLevel = roleHierarchy[requiredRole] || 1;
 
   if (userLevel < requiredLevel) {
-    const requiredTitle =
-      requiredRole === 'administrator'
-        ? 'Archival Administrator'
-        : requiredRole === 'editor'
-        ? 'Senior Editor'
-        : 'Registered Scholar';
+    const isSuperAdminRequired = requiredRole === 'super_admin';
+    const requiredTitle = isSuperAdminRequired
+      ? 'Super Admin (michiganshandilya@gmail.com)'
+      : 'Administrator';
+
+    const userDisplayRole = isSuperAdmin
+      ? 'SUPER ADMIN'
+      : isAdmin
+      ? 'ADMIN'
+      : 'USER';
+
+    const currentEmail = userProfile?.email || currentUser?.email || 'authenticated user';
 
     return (
-      <div className="max-w-xl mx-auto my-12 bg-[#0e1424] border border-amber-900/40 rounded-sm p-6 sm:p-8 text-center space-y-6 shadow-2xl relative overflow-hidden">
-        <div className="mx-auto w-12 h-12 rounded-sm bg-amber-950/80 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
+      <div className="max-w-xl mx-auto my-12 bg-[#ffffff] border border-red-200 rounded-sm p-6 sm:p-8 text-center space-y-6 shadow-xs relative overflow-hidden">
+        <div className="mx-auto w-12 h-12 rounded-sm bg-red-50 border border-red-200 flex items-center justify-center text-red-700 shadow-xs">
           <ShieldAlert size={22} />
         </div>
 
         <div className="space-y-2">
-          <div className="inline-block text-[10px] font-mono font-bold uppercase tracking-wider text-amber-400 bg-amber-950/60 px-2.5 py-0.5 rounded-sm border border-amber-500/30">
-            Elevated Clearance Required
+          <div className="inline-block text-[10px] font-mono font-bold uppercase tracking-wider text-red-800 bg-red-50 px-2.5 py-0.5 rounded-sm border border-red-200">
+            {isSuperAdminRequired ? 'Super Admin Clearance Required' : 'Administrative Clearance Required'}
           </div>
-          <h2 className="text-xl sm:text-2xl font-bold text-slate-100 font-display">
+          <h2 className="text-xl sm:text-2xl font-bold text-[#101418] font-serif">
             Insufficient Permissions
           </h2>
-          <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto leading-relaxed">
-            This administrative partition requires{' '}
-            <strong className="text-amber-300">{requiredTitle}</strong> clearance. Your current account
-            is registered as{' '}
-            <span className="font-mono text-slate-300 capitalize">{role.replace('_', ' ')}</span>.
+          <p className="text-xs sm:text-sm text-[#54595d] max-w-md mx-auto leading-relaxed font-sans">
+            This high-security governance section requires{' '}
+            <strong className="text-[#101418] font-mono">{requiredTitle}</strong> privileges.
           </p>
+
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-sm text-xs font-mono text-left space-y-1 text-[#334155] max-w-md mx-auto mt-2">
+            <div>
+              <span className="text-slate-500">Logged in as:</span>{' '}
+              <span className="font-semibold text-slate-800">{currentEmail}</span>
+            </div>
+            <div>
+              <span className="text-slate-500">Current Role:</span>{' '}
+              <span className="font-bold text-amber-700">{userDisplayRole}</span>
+            </div>
+          </div>
         </div>
 
-        <div className="pt-2 flex justify-center">
+        <div className="pt-2 flex justify-center gap-3">
           <Button
-            variant="outline"
+            variant="secondary"
             size="md"
             onClick={() => navigate('/')}
             icon={<ArrowLeft size={15} />}
           >
-            Return to Knowledge Archives
+            Return to Main Codex
           </Button>
+          {isAdmin && (
+            <Button
+              variant="primary"
+              size="md"
+              onClick={() => navigate('/admin')}
+              icon={<Shield size={15} />}
+            >
+              Go to Admin Dashboard
+            </Button>
+          )}
         </div>
       </div>
     );

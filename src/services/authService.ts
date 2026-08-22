@@ -3,11 +3,20 @@ import {
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
+  signInWithPopup,
+  GoogleAuthProvider,
+  OAuthProvider,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  ConfirmationResult,
+  sendPasswordResetEmail,
+  verifyPasswordResetCode,
+  confirmPasswordReset,
   User,
 } from 'firebase/auth';
 import { auth, isFirebaseConfigured } from '../lib/firebase';
 import { UserProfile } from '../types';
-import { createUserProfile, getUserById, isUsernameAvailable } from './userService';
+import { createUserProfile, getUserById, isUsernameAvailable, ensureUserProfile, normalizeHandle } from './userService';
 
 export interface AuthResult {
   user: User | null;
@@ -16,20 +25,120 @@ export interface AuthResult {
   isProviderDisabled?: boolean;
 }
 
+let recaptchaVerifierInstance: RecaptchaVerifier | null = null;
+
 /**
  * Maps raw Firebase authentication errors into clear, friendly, and actionable messages.
  */
-export function formatAuthError(error: any): { message: string; isProviderDisabled?: boolean } {
+export function formatAuthError(
+  error: any,
+  provider: 'email' | 'google' | 'apple' | 'phone' = 'email'
+): { message: string; isProviderDisabled?: boolean } {
   if (!error) return { message: 'An unknown authentication error occurred.' };
 
   const code = error?.code || '';
   const rawMsg = error?.message || '';
 
   if (code === 'auth/operation-not-allowed') {
+    const providerName = 
+      provider === 'google' ? 'Google' : 
+      provider === 'apple' ? 'Apple' : 
+      provider === 'phone' ? 'Phone' : 'Email/Password';
+
     return {
-      message:
-        'Email/Password sign-in is currently disabled in your Firebase project. To enable it, navigate to Firebase Console → Authentication → Sign-in method → Email/Password.',
+      message: `${providerName} sign-in is currently not enabled in your Firebase project. To enable it, navigate to Firebase Console → Authentication → Sign-in method → ${providerName} → Enable.`,
       isProviderDisabled: true,
+    };
+  }
+
+  if (code === 'auth/popup-closed-by-user') {
+    return {
+      message: 'The authentication window was closed before completing sign-in.',
+    };
+  }
+
+  if (code === 'auth/popup-blocked') {
+    return {
+      message: 'The sign-in popup was blocked by your browser. Please allow popups for this site and try again.',
+    };
+  }
+
+  if (code === 'auth/cancelled-popup-request') {
+    return {
+      message: 'Authentication request was replaced by another active request.',
+    };
+  }
+
+  if (code === 'auth/unauthorized-domain') {
+    return {
+      message: 'This web domain is not authorized for OAuth operations in Firebase Console. Please add this domain to Firebase Console → Authentication → Settings → Authorized domains.',
+    };
+  }
+
+  if (code === 'auth/account-exists-with-different-credential') {
+    return {
+      message: 'An account already exists with the same email using a different sign-in method. Please sign in using your existing provider.',
+    };
+  }
+
+  if (code === 'auth/invalid-phone-number') {
+    return {
+      message: 'Invalid phone number format. Please ensure international country code prefix is included (e.g. +1 555-0100).',
+    };
+  }
+
+  if (code === 'auth/missing-phone-number') {
+    return {
+      message: 'Please provide a valid phone number.',
+    };
+  }
+
+  if (code === 'auth/invalid-verification-code') {
+    return {
+      message: 'The 6-digit SMS verification code entered is incorrect. Please check and retry.',
+    };
+  }
+
+  if (code === 'auth/code-expired') {
+    return {
+      message: 'The SMS verification code has expired. Please request a new code.',
+    };
+  }
+
+  if (code === 'auth/billing-not-enabled') {
+    return {
+      message: 'Real SMS dispatch requires the Firebase Blaze (pay-as-you-go) plan or testing numbers configured in Firebase Console. To test without billing, configure a phone number under Firebase Console → Authentication → Sign-in method → Phone → "Phone numbers for testing" (e.g. +1 650-555-3434 with code 123456).',
+      isProviderDisabled: false,
+    };
+  }
+
+  if (code === 'auth/quota-exceeded') {
+    return {
+      message: 'SMS verification quota exceeded for this Firebase project. To continue testing, use configured test phone numbers in Firebase Console or switch to email sign-in.',
+    };
+  }
+
+  if (code === 'auth/captcha-check-failed') {
+    return {
+      message: 'Anti-abuse reCAPTCHA verification failed. Please try again.',
+    };
+  }
+
+  if (code === 'auth/invalid-action-code') {
+    return {
+      message: 'This password reset link is invalid, expired, or has already been used. Please request a new reset link.',
+    };
+  }
+
+  if (code === 'auth/expired-action-code') {
+    return {
+      message: 'This password reset link has expired. Please request a new reset link.',
+    };
+  }
+
+  if (code === 'auth/missing-email') {
+    return {
+      message: 'Please enter your registered email address.',
     };
   }
 
@@ -170,14 +279,15 @@ export async function registerWithEmail(
       console.warn('Could not update Firebase Auth displayName:', profileErr);
     }
 
-    // 4. Create Firestore document with role = 'registered_user'
+    // 4. Create Firestore document with role = 'user'
+    const cleanHandle = normalizeHandle(cleanUsername) || 'scholar';
     const newProfile: Partial<UserProfile> = {
       id: authUser.uid,
-      username: cleanUsername,
+      username: cleanHandle,
       displayName: cleanDisplayName,
       email: cleanEmail,
-      role: 'registered_user',
-      photoURL: authUser.photoURL || undefined,
+      role: 'user',
+      photoURL: authUser.photoURL || '',
     };
 
     await createUserProfile(newProfile);
@@ -189,7 +299,7 @@ export async function registerWithEmail(
       profile: savedProfile || (newProfile as UserProfile),
     };
   } catch (error: any) {
-    const { message, isProviderDisabled } = formatAuthError(error);
+    const { message, isProviderDisabled } = formatAuthError(error, 'email');
     return {
       user: null,
       profile: null,
@@ -229,38 +339,287 @@ export async function loginWithEmail(email: string, password: string): Promise<A
     const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, password);
     const authUser = userCredential.user;
 
-    // Fetch user profile from Firestore
-    let profile = await getUserById(authUser.uid);
-
-    // If profile document does not exist yet (e.g. edge case), create default profile
-    if (!profile) {
-      const defaultUsername = (authUser.email?.split('@')[0] || 'scholar')
-        .toLowerCase()
-        .replace(/[^a-z0-9_]/g, '')
-        .slice(0, 20);
-
-      await createUserProfile({
-        id: authUser.uid,
-        username: defaultUsername,
-        displayName: authUser.displayName || defaultUsername,
-        email: authUser.email || '',
-        role: 'registered_user',
-      });
-      profile = await getUserById(authUser.uid);
-    }
+    // Automatically load or ensure authoritative user profile in Firestore
+    const profile = await ensureUserProfile(authUser);
 
     return {
       user: authUser,
       profile,
     };
   } catch (error: any) {
-    const { message, isProviderDisabled } = formatAuthError(error);
+    const { message, isProviderDisabled } = formatAuthError(error, 'email');
     return {
       user: null,
       profile: null,
       error: message,
       isProviderDisabled,
     };
+  }
+}
+
+/**
+ * Real Firebase Google Authentication with Firestore User Profile synchronization.
+ */
+export async function loginWithGoogle(): Promise<AuthResult> {
+  if (!isFirebaseConfigured() || !auth) {
+    throw new Error('Firebase Authentication is not initialized.');
+  }
+
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({
+    prompt: 'select_account',
+  });
+
+  try {
+    const userCredential = await signInWithPopup(auth, provider);
+    const authUser = userCredential.user;
+
+    // Ensure persistent Firestore profile while preserving existing roles & data
+    const profile = await ensureUserProfile(authUser);
+
+    return {
+      user: authUser,
+      profile,
+    };
+  } catch (error: any) {
+    console.error('Google Authentication Error:', error);
+    const { message, isProviderDisabled } = formatAuthError(error, 'google');
+    return {
+      user: null,
+      profile: null,
+      error: message,
+      isProviderDisabled,
+    };
+  }
+}
+
+/**
+ * Real Firebase Apple Authentication with Firestore User Profile synchronization.
+ */
+export async function loginWithApple(): Promise<AuthResult> {
+  if (!isFirebaseConfigured() || !auth) {
+    throw new Error('Firebase Authentication is not initialized.');
+  }
+
+  const provider = new OAuthProvider('apple.com');
+  provider.addScope('email');
+  provider.addScope('name');
+
+  try {
+    const userCredential = await signInWithPopup(auth, provider);
+    const authUser = userCredential.user;
+
+    // Ensure persistent Firestore profile while preserving existing roles & data
+    const profile = await ensureUserProfile(authUser);
+
+    return {
+      user: authUser,
+      profile,
+    };
+  } catch (error: any) {
+    console.error('Apple Authentication Error:', error);
+    const { message, isProviderDisabled } = formatAuthError(error, 'apple');
+    return {
+      user: null,
+      profile: null,
+      error: message,
+      isProviderDisabled,
+    };
+  }
+}
+
+/**
+ * Initializes and mounts reCAPTCHA verifier for Phone SMS verification.
+ */
+export function setupRecaptcha(containerIdOrElement: string | HTMLElement): RecaptchaVerifier {
+  if (!auth) {
+    throw new Error('Firebase Authentication is not initialized.');
+  }
+
+  if (recaptchaVerifierInstance) {
+    try {
+      recaptchaVerifierInstance.clear();
+    } catch {
+      // Non-blocking
+    }
+  }
+
+  recaptchaVerifierInstance = new RecaptchaVerifier(auth, containerIdOrElement, {
+    size: 'invisible',
+    callback: () => {
+      // reCAPTCHA solved
+    },
+    'expired-callback': () => {
+      // Response expired
+    },
+  });
+
+  return recaptchaVerifierInstance;
+}
+
+/**
+ * Dispatches a phone verification SMS code via Firebase Phone Authentication.
+ */
+export async function requestPhoneCode(
+  phoneNumber: string,
+  containerIdOrElement: string | HTMLElement
+): Promise<{ confirmationResult?: ConfirmationResult; error?: string; isProviderDisabled?: boolean }> {
+  if (!isFirebaseConfigured() || !auth) {
+    throw new Error('Firebase Authentication is not initialized.');
+  }
+
+  const cleanPhone = phoneNumber.trim();
+  if (!cleanPhone || cleanPhone.length < 7) {
+    return { error: 'Please enter a valid phone number with country code (e.g. +1 555-0199).' };
+  }
+
+  try {
+    const verifier = setupRecaptcha(containerIdOrElement);
+    const confirmationResult = await signInWithPhoneNumber(auth, cleanPhone, verifier);
+    return { confirmationResult };
+  } catch (error: any) {
+    console.error('Phone SMS Dispatch Error:', error);
+    const { message, isProviderDisabled } = formatAuthError(error, 'phone');
+    return { error: message, isProviderDisabled };
+  }
+}
+
+/**
+ * Verifies the SMS code submitted by the user and synchronizes the Firestore profile.
+ */
+export async function verifyPhoneVerificationCode(
+  confirmationResult: ConfirmationResult,
+  verificationCode: string
+): Promise<AuthResult> {
+  const cleanCode = verificationCode.trim();
+  if (!cleanCode || cleanCode.length < 4) {
+    return {
+      user: null,
+      profile: null,
+      error: 'Please enter the 6-digit verification code sent to your phone.',
+    };
+  }
+
+  try {
+    const userCredential = await confirmationResult.confirm(cleanCode);
+    const authUser = userCredential.user;
+
+    // Ensure persistent Firestore profile while preserving existing roles & data
+    const profile = await ensureUserProfile(authUser);
+
+    return {
+      user: authUser,
+      profile,
+    };
+  } catch (error: any) {
+    console.error('Phone Code Verification Error:', error);
+    const { message, isProviderDisabled } = formatAuthError(error, 'phone');
+    return {
+      user: null,
+      profile: null,
+      error: message,
+      isProviderDisabled,
+    };
+  }
+}
+
+/**
+ * Sends a real Firebase password reset email to the specified address.
+ */
+export async function sendUserPasswordResetEmail(
+  email: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!isFirebaseConfigured() || !auth) {
+    throw new Error('Firebase Authentication is not initialized.');
+  }
+
+  const cleanEmail = (email || '').trim().toLowerCase();
+  if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    return { success: false, error: 'Please enter a valid email address.' };
+  }
+
+  try {
+    // Attempt with application continue URL
+    try {
+      const actionCodeSettings = {
+        url: `${window.location.origin}/reset-password`,
+        handleCodeInApp: true,
+      };
+      await sendPasswordResetEmail(auth, cleanEmail, actionCodeSettings);
+    } catch (configErr: any) {
+      const errCode = configErr?.code || '';
+      // If unauthorized-continue-uri or invalid-continue-uri, fallback cleanly to default
+      if (
+        errCode === 'auth/unauthorized-continue-uri' ||
+        errCode === 'auth/invalid-continue-uri' ||
+        errCode === 'auth/missing-continue-uri'
+      ) {
+        await sendPasswordResetEmail(auth, cleanEmail);
+      } else {
+        throw configErr;
+      }
+    }
+
+    return { success: true };
+  } catch (error: any) {
+    console.error('Password Reset Request Error:', error);
+    const { message } = formatAuthError(error, 'email');
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Validates a Firebase password reset action code (oobCode) and returns the associated email.
+ */
+export async function verifyResetCode(
+  oobCode: string
+): Promise<{ success: boolean; email?: string; error?: string }> {
+  if (!isFirebaseConfigured() || !auth) {
+    throw new Error('Firebase Authentication is not initialized.');
+  }
+
+  const cleanCode = (oobCode || '').trim();
+  if (!cleanCode) {
+    return { success: false, error: 'Password reset code is missing or empty.' };
+  }
+
+  try {
+    const email = await verifyPasswordResetCode(auth, cleanCode);
+    return { success: true, email };
+  } catch (error: any) {
+    console.error('Verify Password Reset Code Error:', error);
+    const { message } = formatAuthError(error, 'email');
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Confirms and updates the user's password in Firebase Authentication using the action code (oobCode).
+ */
+export async function confirmUserPasswordReset(
+  oobCode: string,
+  newPassword: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!isFirebaseConfigured() || !auth) {
+    throw new Error('Firebase Authentication is not initialized.');
+  }
+
+  const cleanCode = (oobCode || '').trim();
+  if (!cleanCode) {
+    return { success: false, error: 'Password reset action code is missing.' };
+  }
+
+  if (!newPassword || newPassword.length < 6) {
+    return { success: false, error: 'Password must be at least 6 characters long.' };
+  }
+
+  try {
+    await confirmPasswordReset(auth, cleanCode, newPassword);
+    return { success: true };
+  } catch (error: any) {
+    console.error('Confirm Password Reset Error:', error);
+    const { message } = formatAuthError(error, 'email');
+    return { success: false, error: message };
   }
 }
 
@@ -280,3 +639,4 @@ export async function logoutUser(): Promise<{ success: boolean; error?: string }
     return { success: false, error: error?.message || 'Failed to log out.' };
   }
 }
+

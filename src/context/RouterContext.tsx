@@ -11,6 +11,19 @@ interface RouterContextType {
 
 const RouterContext = createContext<RouterContextType | undefined>(undefined);
 
+/**
+ * Normalizes URL slugs (converts underscores, spaces, uppercase to clean kebab-case)
+ */
+export function normalizeSlug(rawSlug: string): string {
+  return decodeURIComponent(rawSlug)
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/--+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 export function parsePath(pathname: string, search: string = ''): PageRoute {
   const cleanPath = pathname.replace(/\/+$/, '') || '/';
   const urlParams = new URLSearchParams(search);
@@ -19,28 +32,62 @@ export function parsePath(pathname: string, search: string = ''): PageRoute {
     return { type: 'home' };
   }
 
-  // /wiki/:slug
-  const wikiMatch = cleanPath.match(/^\/wiki\/([^/]+)/);
+  // /wiki/:slug OR /article/:slug OR /entry/:slug OR /dossier/:slug (canonical wiki route)
+  const wikiMatch = cleanPath.match(/^\/(?:wiki|article|entry|dossier)\/([^/?#]+)/);
   if (wikiMatch) {
-    return { type: 'wiki', slug: decodeURIComponent(wikiMatch[1]) };
+    const rawSlug = wikiMatch[1];
+    const decoded = decodeURIComponent(rawSlug).trim();
+    const slug = normalizeSlug(decoded) || decoded.toLowerCase();
+    return { type: 'wiki', slug };
   }
 
-  // /category/:slug
-  const catMatch = cleanPath.match(/^\/category\/([^/]+)/);
+  // /curtains OR /behind-the-curtains (global cross-category curtains portal)
+  if (
+    cleanPath === '/curtains' ||
+    cleanPath === '/behind-the-curtains' ||
+    cleanPath === '/behind-curtains' ||
+    cleanPath === '/category/behind-the-curtains' ||
+    cleanPath === '/category/curtains'
+  ) {
+    return { type: 'category', slug: 'behind-the-curtains', curtains: true };
+  }
+
+  // /category/:slug/curtains OR /category/:slug/behind-the-curtains (category-specific curtains layer)
+  const catCurtainsMatch = cleanPath.match(/^\/(?:category|categories|topic|discipline)\/([^/]+)\/(?:curtains|behind-the-curtains|behind-curtains)/);
+  if (catCurtainsMatch) {
+    const rawSlug = catCurtainsMatch[1];
+    const slug = normalizeSlug(rawSlug) || decodeURIComponent(rawSlug).toLowerCase();
+    return { type: 'category', slug, curtains: true };
+  }
+
+  // /category/:slug OR /topic/:slug OR /discipline/:slug
+  const catMatch = cleanPath.match(/^\/(?:category|categories|topic|discipline)\/([^/]+)/);
   if (catMatch) {
-    return { type: 'category', slug: decodeURIComponent(catMatch[1]) };
+    const rawSlug = catMatch[1];
+    const slug = normalizeSlug(rawSlug) || decodeURIComponent(rawSlug).toLowerCase();
+    const hasCurtainsParam = urlParams.get('curtains') === 'true' || urlParams.get('layer') === 'behind_curtains' || urlParams.get('layer') === 'behind-the-curtains';
+    return { type: 'category', slug, curtains: hasCurtainsParam || slug === 'behind-the-curtains' };
   }
 
   // /search
   if (cleanPath === '/search') {
     const q = urlParams.get('q') || '';
     const cat = urlParams.get('category') || undefined;
-    return { type: 'search', query: q, category: cat };
+    const layerParam = urlParams.get('layer');
+    const layer = (layerParam === 'behind_curtains' || layerParam === 'behind-the-curtains' || urlParams.get('curtains') === 'true')
+      ? 'behind_curtains'
+      : (layerParam === 'visible' ? 'visible' : 'all');
+    return { type: 'search', query: q, category: cat, layer };
   }
 
   // /random
   if (cleanPath === '/random') {
     return { type: 'random' };
+  }
+
+  // /sitemap OR /sitemap.xml
+  if (cleanPath === '/sitemap' || cleanPath === '/sitemap.xml') {
+    return { type: 'sitemap' };
   }
 
   // /login
@@ -51,6 +98,33 @@ export function parsePath(pathname: string, search: string = ''): PageRoute {
   // /signup or /register
   if (cleanPath === '/signup' || cleanPath === '/register') {
     return { type: 'signup' };
+  }
+
+  // /forgot-password or /recover-password or /forgot
+  if (
+    cleanPath === '/forgot-password' ||
+    cleanPath === '/forgot' ||
+    cleanPath === '/recover-password' ||
+    (cleanPath === '/login' && urlParams.get('mode') === 'forgotPassword')
+  ) {
+    return { type: 'forgot-password' };
+  }
+
+  // /reset-password or Firebase Auth handler (/auth/action or URL with oobCode)
+  const oobCode = urlParams.get('oobCode') || '';
+  const mode = urlParams.get('mode') || '';
+  if (
+    cleanPath === '/reset-password' ||
+    cleanPath === '/auth/action' ||
+    cleanPath === '/password-reset' ||
+    (oobCode && mode === 'resetPassword') ||
+    (cleanPath === '/reset-password' && oobCode)
+  ) {
+    return {
+      type: 'reset-password',
+      oobCode: oobCode || undefined,
+      mode: mode || (oobCode ? 'resetPassword' : undefined),
+    };
   }
 
   // /create
@@ -69,22 +143,46 @@ export function parsePath(pathname: string, search: string = ''): PageRoute {
     return { type: 'edit', slug: decodeURIComponent(editMatch[1]) };
   }
 
-  // /user/:username
-  const userMatch = cleanPath.match(/^\/user\/([^/]+)/);
+  // /user/:username OR /profile/:username OR /scholar/:username OR /contributor/:username
+  const userMatch = cleanPath.match(/^\/(?:user|profile|scholar|contributor)\/([^/]+)/);
   if (userMatch) {
-    return { type: 'user', username: decodeURIComponent(userMatch[1]) };
+    const rawUsername = decodeURIComponent(userMatch[1]).replace(/^@+/, '').trim();
+    return { type: 'user', username: rawUsername };
   }
 
-  // /admin
-  if (cleanPath === '/admin') {
-    return { type: 'admin' };
+  // Direct profile dashboard aliases without username: /profile, /profile-dashboard, /my-profile, /user
+  if (
+    cleanPath === '/profile' ||
+    cleanPath === '/profile-dashboard' ||
+    cleanPath === '/my-profile' ||
+    cleanPath === '/user' ||
+    cleanPath === '/scholar' ||
+    cleanPath === '/contributor'
+  ) {
+    return { type: 'user', username: '' };
   }
 
-  // Static pages
-  if (cleanPath === '/about') return { type: 'about' };
-  if (cleanPath === '/contact') return { type: 'contact' };
-  if (cleanPath === '/privacy') return { type: 'privacy' };
-  if (cleanPath === '/terms') return { type: 'terms' };
+  // /super-admin OR /superadmin OR /super-admin/:tab
+  const superAdminMatch = cleanPath.match(/^\/(?:super-admin|superadmin)(?:\/([a-zA-Z0-9_-]+))?/);
+  if (superAdminMatch) {
+    const rawTab = superAdminMatch[1] as any;
+    return { type: 'super-admin', tab: rawTab };
+  }
+
+  // /admin OR /admin/:tab OR /governance
+  const adminMatch = cleanPath.match(/^\/(?:admin|governance)(?:\/([a-zA-Z0-9_-]+))?/);
+  if (adminMatch) {
+    const rawTab = adminMatch[1] as any;
+    return { type: 'admin', tab: rawTab };
+  }
+
+  // Static & Policy pages
+  if (cleanPath === '/about' || cleanPath === '/about-us') return { type: 'about' };
+  if (cleanPath === '/contact' || cleanPath === '/contact-us' || cleanPath === '/errata') return { type: 'contact' };
+  if (cleanPath === '/privacy' || cleanPath === '/privacy-policy' || cleanPath === '/data-privacy') return { type: 'privacy' };
+  if (cleanPath === '/terms' || cleanPath === '/terms-of-use' || cleanPath === '/terms-of-service') return { type: 'terms' };
+  if (cleanPath === '/editorial-policy' || cleanPath === '/editorial-standards' || cleanPath === '/editorial-guidelines') return { type: 'editorial-policy' };
+  if (cleanPath === '/content-policy' || cleanPath === '/community-guidelines' || cleanPath === '/content-standards') return { type: 'content-policy' };
 
   return { type: 'notFound' };
 }
@@ -99,8 +197,9 @@ export const RouterProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   });
 
   const getRandomArticleSlug = useCallback(() => {
+    if (!DEMO_ARTICLES || DEMO_ARTICLES.length === 0) return 'albert-einstein';
     const randomIndex = Math.floor(Math.random() * DEMO_ARTICLES.length);
-    return DEMO_ARTICLES[randomIndex]?.slug || 'library-of-alexandria';
+    return DEMO_ARTICLES[randomIndex]?.slug || DEMO_ARTICLES[0]?.slug || 'albert-einstein';
   }, []);
 
   const navigate = useCallback((path: string) => {
