@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from '../context/RouterContext';
 import { useAuth } from '../context/AuthContext';
 import { Article, ArticleStatus } from '../types';
-import { getUserArticles, deleteArticle, submitArticleForReview } from '../services/articleService';
+import { getUserArticles, deleteDraft, submitArticleForReview } from '../services/articleService';
 import { Breadcrumbs } from '../components/common/Breadcrumbs';
 import { LoadingState } from '../components/common/LoadingState';
 import {
@@ -19,7 +19,8 @@ import {
   AlertTriangle,
   XCircle,
   MessageSquare,
-  ArrowRight
+  ArrowRight,
+  History
 } from 'lucide-react';
 
 export const MyArticlesPage: React.FC = () => {
@@ -31,7 +32,9 @@ export const MyArticlesPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'all' | 'draft' | 'pending_review' | 'changes_requested' | 'published' | 'rejected'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteModalDraft, setDeleteModalDraft] = useState<Article | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const authorId = user?.uid || userProfile?.id || '';
 
@@ -59,20 +62,29 @@ export const MyArticlesPage: React.FC = () => {
     }
   }, [authorId, isAuthenticated, authLoading]);
 
-  // Handle delete draft
-  const handleDeleteDraft = async (id: string, title: string) => {
-    if (!window.confirm(`Are you sure you want to permanently delete the draft "${title}"?`)) {
-      return;
-    }
-
+  // Handle confirm delete draft
+  const handleConfirmDelete = async (draft: Article) => {
     try {
-      setDeletingId(id);
-      await deleteArticle(id);
-      setArticles((prev) => prev.filter((a) => a.id !== id));
-      setActionSuccess(`Draft "${title}" was successfully deleted.`);
-      setTimeout(() => setActionSuccess(null), 4000);
-    } catch (err) {
+      setDeletingId(draft.id);
+      setActionError(null);
+      const res = await deleteDraft(draft.id, {
+        uid: authorId,
+        email: user?.email || undefined,
+        role: userProfile?.role || 'user',
+      });
+      if (res.success) {
+        setArticles((prev) => prev.filter((a) => a.id !== draft.id && a.slug !== draft.slug));
+        setDeleteModalDraft(null);
+        setActionSuccess(`Draft "${draft.title || 'Untitled Draft'}" was successfully deleted.`);
+        setTimeout(() => setActionSuccess(null), 4000);
+      } else {
+        setActionError(res.error || 'Failed to delete draft. Please check your connection and retry.');
+        setDeleteModalDraft(null);
+      }
+    } catch (err: any) {
       console.error('Error deleting draft:', err);
+      setActionError(err.message || 'An unexpected error occurred while deleting draft.');
+      setDeleteModalDraft(null);
     } finally {
       setDeletingId(null);
     }
@@ -187,6 +199,14 @@ export const MyArticlesPage: React.FC = () => {
         <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-sm text-emerald-900 text-xs flex items-center gap-2 shadow-xs">
           <CheckCircle size={16} className="text-emerald-600 shrink-0" />
           <span>{actionSuccess}</span>
+        </div>
+      )}
+
+      {/* Action Error Notification */}
+      {actionError && (
+        <div className="p-3 bg-rose-50 border border-rose-300 rounded-sm text-rose-900 text-xs flex items-center gap-2 shadow-xs">
+          <AlertTriangle size={16} className="text-rose-600 shrink-0" />
+          <span>{actionError}</span>
         </div>
       )}
 
@@ -306,11 +326,14 @@ export const MyArticlesPage: React.FC = () => {
               {/* Title & Excerpt */}
               <div className="space-y-1">
                 <h2
-                  onClick={() =>
-                    art.status === 'published'
-                      ? navigate(`/wiki/${art.slug}`)
-                      : navigate(`/edit/${art.slug}`)
-                  }
+                  onClick={() => {
+                    const targetSlug = (art.slug || '').trim() || (art.id || '').trim();
+                    if (art.status === 'published') {
+                      navigate(`/wiki/${targetSlug}`);
+                    } else {
+                      navigate(`/edit/${targetSlug}`);
+                    }
+                  }}
                   className="text-base sm:text-lg font-bold font-serif text-[#101418] hover:text-[#3366cc] hover:underline transition-colors cursor-pointer"
                 >
                   {art.title}
@@ -360,7 +383,7 @@ export const MyArticlesPage: React.FC = () => {
               <div className="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-[#eaecf0] text-xs">
                 <div className="flex items-center gap-1.5 font-mono text-[11px] text-[#72777d]">
                   <span>Slug:</span>
-                  <span className="text-[#101418] font-semibold">/wiki/{art.slug}</span>
+                  <span className="text-[#101418] font-semibold">/wiki/{art.slug || art.id}</span>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
@@ -393,7 +416,10 @@ export const MyArticlesPage: React.FC = () => {
                   {art.status === 'published' && (
                     <button
                       type="button"
-                      onClick={() => navigate(`/wiki/${art.slug}`)}
+                      onClick={() => {
+                        const targetSlug = (art.slug || '').trim() || (art.id || '').trim();
+                        navigate(`/wiki/${targetSlug}`);
+                      }}
                       className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-sm font-semibold cursor-pointer"
                     >
                       <Eye size={12} />
@@ -411,22 +437,79 @@ export const MyArticlesPage: React.FC = () => {
                     <span>Edit Article</span>
                   </button>
 
+                  {/* Version History Button */}
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/edit/${encodeURIComponent(art.slug || art.id)}?tab=history`)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-[#54595d] hover:text-[#101418] hover:bg-[#f8f9fa] border border-[#a2a9b1] rounded-sm font-semibold cursor-pointer transition-colors"
+                    title="View version history & snapshots"
+                  >
+                    <History size={12} className="text-[#3366cc]" />
+                    <span className="hidden sm:inline">History</span>
+                  </button>
+
                   {/* Delete Draft Button */}
                   {art.status === 'draft' && (
                     <button
                       type="button"
-                      onClick={() => handleDeleteDraft(art.id, art.title)}
+                      onClick={() => setDeleteModalDraft(art)}
                       disabled={deletingId === art.id}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-200 rounded-sm font-semibold cursor-pointer transition-colors"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-red-700 hover:text-red-800 hover:bg-red-50 border border-red-200 rounded-sm font-semibold cursor-pointer transition-colors"
                       title="Delete draft"
                     >
                       <Trash2 size={12} />
+                      <span>Delete Draft</span>
                     </button>
                   )}
                 </div>
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ==================================================
+          MODAL: DELETE DRAFT CONFIRMATION
+          ================================================== */}
+      {deleteModalDraft && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="bg-[#ffffff] border border-[#a2a9b1] rounded-sm max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-red-700">
+              <div className="p-2 bg-red-100 rounded-full">
+                <Trash2 size={20} />
+              </div>
+              <h3 className="font-serif font-bold text-base text-[#101418]">
+                Delete Draft
+              </h3>
+            </div>
+
+            <p className="text-xs text-[#54595d] leading-relaxed">
+              Delete this draft? This action cannot be undone.
+            </p>
+
+            <div className="bg-[#f8f9fa] border border-[#eaecf0] p-2.5 rounded-sm text-xs font-serif text-[#101418] font-bold">
+              "{deleteModalDraft.title || 'Untitled Draft'}"
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-[#eaecf0]">
+              <button
+                type="button"
+                onClick={() => setDeleteModalDraft(null)}
+                disabled={deletingId === deleteModalDraft.id}
+                className="px-3.5 py-1.5 bg-white border border-[#a2a9b1] hover:bg-[#eaecf0] text-[#101418] rounded-sm text-xs font-semibold font-mono cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingId === deleteModalDraft.id}
+                onClick={() => handleConfirmDelete(deleteModalDraft)}
+                className="px-4 py-1.5 bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white rounded-sm text-xs font-semibold font-mono shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                {deletingId === deleteModalDraft.id ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

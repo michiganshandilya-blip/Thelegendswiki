@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { ArticleImageFigure } from '../../types';
 import { PRESET_ENCYCLOPEDIA_IMAGES, PresetImageItem } from '../../data/presetImages';
 import { isValidUrl, validateImageAlt } from '../../lib/validation';
-import { fastCompressImage, validateImageUpload } from '../../services/storageService';
+import { uploadArticleImage, validateImageUpload } from '../../services/storageService';
 import {
   Upload,
   Link as LinkIcon,
@@ -62,6 +62,19 @@ export const ImageUploaderModal: React.FC<ImageUploaderModalProps> = ({
   const [isProcessingFile, setIsProcessingFile] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Sync state on modal open/re-open
+  React.useEffect(() => {
+    if (isOpen) {
+      setImageUrl(initialData?.url || '');
+      setCaption(initialData?.caption || '');
+      setAlt(initialData?.alt || '');
+      setCredit(initialData?.credit || '');
+      setAlign(initialData?.align || 'right');
+      setUploadError(null);
+      setIsProcessingFile(false);
+    }
+  }, [isOpen, initialData?.url, initialData?.caption, initialData?.alt, initialData?.credit, initialData?.align]);
+
   // Close on Escape key press for keyboard accessibility
   React.useEffect(() => {
     if (!isOpen) return;
@@ -94,21 +107,47 @@ export const ImageUploaderModal: React.FC<ImageUploaderModalProps> = ({
 
     try {
       setIsProcessingFile(true);
-      const { dataUrl } = await fastCompressImage(file, 1200, 0.85);
-      setImageUrl(dataUrl);
+      const tempId = `art_${Date.now()}`;
+      
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                'Image processing timed out. Please try another image or choose from Archival Presets.'
+              )
+            ),
+          6000
+        )
+      );
 
-      if (!alt) {
+      const result = await Promise.race([
+        uploadArticleImage(tempId, file, file.name || 'image.jpg'),
+        timeoutPromise,
+      ]);
+      
+      if (!result || !result.downloadUrl) {
+        throw new Error('Image processing returned an empty asset URL. Please try another image.');
+      }
+
+      setImageUrl(result.downloadUrl);
+
+      if (!alt || alt.trim().length === 0) {
         // Suggested starter alt text based on file name
         const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
         setAlt(`Illustration depicting ${cleanName}`);
       }
-      if (!credit) {
+      if (!credit || credit.trim().length === 0) {
         setCredit('Author Contributed Upload');
       }
     } catch (err: any) {
-      setUploadError(err.message || 'Failed to process image file. Please try another image.');
+      console.error('[ImageUploaderModal] File processing error:', err);
+      setUploadError(err?.message || 'Failed to process image file. Please try another image.');
     } finally {
       setIsProcessingFile(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -277,6 +316,18 @@ export const ImageUploaderModal: React.FC<ImageUploaderModalProps> = ({
             <div className="space-y-3">
               <div
                 onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const droppedFile = e.dataTransfer.files?.[0];
+                  if (droppedFile) {
+                    processSelectedFile(droppedFile);
+                  }
+                }}
                 className="border-2 border-dashed border-[#cbd5e1] hover:border-[#3366cc] rounded-sm p-6 text-center bg-[#f8f9fa] hover:bg-blue-50/20 cursor-pointer transition-all space-y-2"
               >
                 <Upload size={28} className="mx-auto text-[#3366cc]" />

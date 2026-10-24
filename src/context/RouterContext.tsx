@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { PageRoute } from '../types';
-import { DEMO_ARTICLES } from '../data/demoData';
+import { getRandomPublishedArticleSlug } from '../services/articleService';
 
 interface RouterContextType {
   currentRoute: PageRoute;
@@ -15,13 +15,14 @@ const RouterContext = createContext<RouterContextType | undefined>(undefined);
  * Normalizes URL slugs (converts underscores, spaces, uppercase to clean kebab-case)
  */
 export function normalizeSlug(rawSlug: string): string {
-  return decodeURIComponent(rawSlug)
-    .trim()
-    .toLowerCase()
+  if (!rawSlug) return '';
+  const decoded = decodeURIComponent(rawSlug).trim().toLowerCase();
+  const cleaned = decoded
     .replace(/[_\s]+/g, '-')
     .replace(/[^a-z0-9-]/g, '')
     .replace(/--+/g, '-')
     .replace(/^-+|-+$/g, '');
+  return cleaned || decoded;
 }
 
 export function parsePath(pathname: string, search: string = ''): PageRoute {
@@ -78,6 +79,14 @@ export function parsePath(pathname: string, search: string = ''): PageRoute {
       ? 'behind_curtains'
       : (layerParam === 'visible' ? 'visible' : 'all');
     return { type: 'search', query: q, category: cat, layer };
+  }
+
+  // /series OR /series/:slug (featured investigation series)
+  const seriesMatch = cleanPath.match(/^\/series(?:\/([a-zA-Z0-9_-]+))?/);
+  if (seriesMatch) {
+    const rawSlug = seriesMatch[1];
+    const slug = rawSlug ? normalizeSlug(rawSlug) : 'who-taught-us-to-want-this';
+    return { type: 'series', slug };
   }
 
   // /random
@@ -181,6 +190,8 @@ export function parsePath(pathname: string, search: string = ''): PageRoute {
   if (cleanPath === '/contact' || cleanPath === '/contact-us' || cleanPath === '/errata') return { type: 'contact' };
   if (cleanPath === '/privacy' || cleanPath === '/privacy-policy' || cleanPath === '/data-privacy') return { type: 'privacy' };
   if (cleanPath === '/terms' || cleanPath === '/terms-of-use' || cleanPath === '/terms-of-service') return { type: 'terms' };
+  if (cleanPath === '/disclaimer' || cleanPath === '/disclaimers' || cleanPath === '/legal-disclaimer') return { type: 'disclaimer' };
+  if (cleanPath === '/cookie-policy' || cleanPath === '/cookies' || cleanPath === '/cookie-notice') return { type: 'cookie-policy' };
   if (cleanPath === '/editorial-policy' || cleanPath === '/editorial-standards' || cleanPath === '/editorial-guidelines') return { type: 'editorial-policy' };
   if (cleanPath === '/content-policy' || cleanPath === '/community-guidelines' || cleanPath === '/content-standards') return { type: 'content-policy' };
 
@@ -197,15 +208,17 @@ export const RouterProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   });
 
   const getRandomArticleSlug = useCallback(() => {
-    if (!DEMO_ARTICLES || DEMO_ARTICLES.length === 0) return 'albert-einstein';
-    const randomIndex = Math.floor(Math.random() * DEMO_ARTICLES.length);
-    return DEMO_ARTICLES[randomIndex]?.slug || DEMO_ARTICLES[0]?.slug || 'albert-einstein';
+    return getRandomPublishedArticleSlug();
   }, []);
 
   const navigate = useCallback((path: string) => {
     if (path === '/random') {
       const randomSlug = getRandomArticleSlug();
-      navigate(`/wiki/${randomSlug}`);
+      if (randomSlug) {
+        navigate(`/wiki/${randomSlug}`);
+      } else {
+        navigate('/search');
+      }
       return;
     }
 

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from '../../context/RouterContext';
+import { useArticles } from '../../data/dataProvider';
 import { askAiAssistant, AiChatMessage } from '../../services/aiService';
+import { getPublishedArticles, isArticleDeleted } from '../../services/articleService';
 import { CodeXAvatar } from './CodeXAvatar';
 import {
   Send,
@@ -33,6 +35,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   currentArticle,
 }) => {
   const { navigate } = useRouter();
+  const { articles } = useArticles();
   const [messages, setMessages] = useState<AiChatMessage[]>([
     {
       role: 'assistant',
@@ -92,11 +95,31 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     setIsLoading(true);
 
     try {
+      // Retrieve the latest published articles directly from the live data service
+      let livePublished: any[] = [];
+      try {
+        livePublished = await getPublishedArticles();
+      } catch {
+        livePublished = articles || [];
+      }
+
+      // Strictly enforce: published, live, and not deleted
+      const strictlyLive = (livePublished || []).filter(
+        (a) => a && a.status === 'published' && !isArticleDeleted(a)
+      );
+
       const response = await askAiAssistant({
         messages: newMessages,
         currentArticleSlug: currentArticle?.slug,
         currentArticleTitle: currentArticle?.title,
         currentArticleContent: currentArticle?.content || currentArticle?.summary,
+        availableArticles: strictlyLive.map((a) => ({
+          id: a.id,
+          title: a.title,
+          slug: a.slug,
+          category: a.category,
+          summary: a.summary,
+        })),
       });
 
       if (response.error) {

@@ -15,7 +15,7 @@ import { UserRole } from '../../types';
 import { normalizeHandle, formatDisplayHandle } from '../../services/userService';
 
 export const AccountMenu: React.FC = () => {
-  const { userProfile, currentUser, role, isEditor, isAdmin, isSuperAdmin, logout } = useAuth();
+  const { userProfile, currentUser, role, isEditor, isAdmin, isSuperAdmin, isSuspended, logout } = useAuth();
   const { navigate } = useRouter();
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [loggingOut, setLoggingOut] = useState<boolean>(false);
@@ -168,14 +168,22 @@ export const AccountMenu: React.FC = () => {
             </div>
 
             <div className="mt-2 flex items-center justify-between pt-2 border-t border-[#eaecf0]">
-              <span className="text-[10px] font-mono text-[#72777d] uppercase">Role</span>
-              <span
-                className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded-sm border uppercase ${
-                  roleStyles[role] || roleStyles.user
-                }`}
-              >
-                {role === 'super_admin' ? 'SUPER ADMIN' : role === 'admin' ? 'ADMIN' : 'USER'}
+              <span className="text-[10px] font-mono text-[#72777d] uppercase">
+                {isSuspended ? 'Account Status' : 'Role'}
               </span>
+              {isSuspended ? (
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-sm bg-red-100 text-red-800 border border-red-300 uppercase">
+                  SUSPENDED
+                </span>
+              ) : (
+                <span
+                  className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded-sm border uppercase ${
+                    roleStyles[role] || roleStyles.user
+                  }`}
+                >
+                  {role === 'super_admin' ? 'SUPER ADMIN' : role === 'admin' ? 'ADMIN' : 'USER'}
+                </span>
+              )}
             </div>
           </div>
 

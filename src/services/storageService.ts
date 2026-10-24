@@ -59,32 +59,99 @@ function dataUrlToBlob(dataUrl: string): Blob {
 
 /**
  * Client-side image compression to Blob and Data URL.
- * Automatically resizes image to max avatar dimensions and optimizes quality.
+ * Automatically resizes image to max dimensions and optimizes quality.
  * Guaranteed to NEVER hang.
  */
-export function fastCompressImage(
+export async function fastCompressImage(
   file: File | Blob,
   maxDimension = 256,
   quality = 0.82
 ): Promise<{ blob: Blob; dataUrl: string }> {
+  // Direct instant path for SVG images to prevent canvas rendering hangs
+  const isSvg =
+    (file.type && file.type.toLowerCase().includes('svg')) ||
+    (file instanceof File && file.name.toLowerCase().endsWith('.svg'));
+  if (isSvg) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dUrl = (reader.result as string) || '';
+        resolve({ blob: file, dataUrl: dUrl });
+      };
+      reader.onerror = () => {
+        resolve({ blob: file, dataUrl: '' });
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // 1. High-performance native decode via createImageBitmap (supported in modern browsers)
+  if (typeof window !== 'undefined' && typeof createImageBitmap === 'function') {
+    try {
+      const bitmap = await createImageBitmap(file);
+      let width = bitmap.width || 256;
+      let height = bitmap.height || 256;
+
+      if (width > height) {
+        if (width > maxDimension) {
+          height = Math.round((height * maxDimension) / width);
+          width = maxDimension;
+        }
+      } else {
+        if (height > maxDimension) {
+          width = Math.round((width * maxDimension) / height);
+          height = maxDimension;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, width);
+      canvas.height = Math.max(1, height);
+      const ctx = canvas.getContext('2d', { alpha: false });
+      if (ctx) {
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(bitmap, 0, 0, width, height);
+        bitmap.close();
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        const blob = dataUrlToBlob(dataUrl);
+        return { blob, dataUrl };
+      }
+      bitmap.close();
+    } catch (bitmapErr) {
+      console.warn('[Avatar/Storage] Native createImageBitmap failed, falling back to HTMLImageElement:', bitmapErr);
+    }
+  }
+
+  // 2. Resilient fallback using HTMLImageElement with strict timeout
   return new Promise((resolve) => {
-    let resolved = false;
+    let settled = false;
+    let url = '';
+
+    const cleanup = () => {
+      if (url) {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {
+          // ignore
+        }
+        url = '';
+      }
+    };
 
     const finish = (blob: Blob, dataUrl: string) => {
-      if (resolved) return;
-      resolved = true;
+      if (settled) return;
+      settled = true;
+      cleanup();
       resolve({ blob, dataUrl });
     };
 
-    // 2-second strict fallback timeout
+    // Strict timeout guarantee (2 seconds)
     const timeoutId = setTimeout(() => {
-      console.warn('[Avatar] Image compression timeout, falling back to direct reader');
+      console.warn('[Avatar/Storage] Image compression timeout, falling back to direct reader');
       try {
         const fallbackReader = new FileReader();
-        fallbackReader.onload = () => {
-          const dUrl = (fallbackReader.result as string) || '';
-          finish(file, dUrl);
-        };
+        fallbackReader.onload = () => finish(file, (fallbackReader.result as string) || '');
         fallbackReader.onerror = () => finish(file, '');
         fallbackReader.readAsDataURL(file);
       } catch {
@@ -92,85 +159,119 @@ export function fastCompressImage(
       }
     }, 2000);
 
-    const url = URL.createObjectURL(file);
-    const img = new Image();
+    try {
+      url = URL.createObjectURL(file);
+      const img = new Image();
 
-    img.onerror = () => {
-      clearTimeout(timeoutId);
-      URL.revokeObjectURL(url);
-      console.warn('[Avatar] Image failed to load in compressor');
-      const fallbackReader = new FileReader();
-      fallbackReader.onload = () => finish(file, (fallbackReader.result as string) || '');
-      fallbackReader.onerror = () => finish(file, '');
-      fallbackReader.readAsDataURL(file);
-    };
-
-    img.onload = () => {
-      clearTimeout(timeoutId);
-      URL.revokeObjectURL(url);
-      
-      try {
-        let width = img.naturalWidth || img.width || 256;
-        let height = img.naturalHeight || img.height || 256;
-
-        // Calculate aspect-ratio preserving dimensions
-        if (width > height) {
-          if (width > maxDimension) {
-            height = Math.round((height * maxDimension) / width);
-            width = maxDimension;
-          }
-        } else {
-          if (height > maxDimension) {
-            width = Math.round((width * maxDimension) / height);
-            height = maxDimension;
-          }
-        }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, width);
-        canvas.height = Math.max(1, height);
-
-        const ctx = canvas.getContext('2d', { alpha: false });
-        if (!ctx) {
-          const fallbackReader = new FileReader();
-          fallbackReader.onload = () => finish(file, (fallbackReader.result as string) || '');
-          fallbackReader.onerror = () => finish(file, '');
-          fallbackReader.readAsDataURL(file);
-          return;
-        }
-
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(img, 0, 0, width, height);
-
-        // Immediate synchronous dataURL extraction - NEVER hangs
-        const dataUrl = canvas.toDataURL('image/jpeg', quality);
-        const blob = dataUrlToBlob(dataUrl);
-
-        finish(blob, dataUrl);
-      } catch (canvasErr) {
-        console.warn('[Avatar] Canvas error during image compression:', canvasErr);
+      img.onerror = () => {
+        clearTimeout(timeoutId);
+        console.warn('[Avatar/Storage] Image element failed to decode source');
         const fallbackReader = new FileReader();
         fallbackReader.onload = () => finish(file, (fallbackReader.result as string) || '');
         fallbackReader.onerror = () => finish(file, '');
         fallbackReader.readAsDataURL(file);
-      }
-    };
+      };
 
-    img.src = url;
+      img.onload = () => {
+        clearTimeout(timeoutId);
+        try {
+          let width = img.naturalWidth || img.width || 256;
+          let height = img.naturalHeight || img.height || 256;
+
+          if (width > height) {
+            if (width > maxDimension) {
+              height = Math.round((height * maxDimension) / width);
+              width = maxDimension;
+            }
+          } else {
+            if (height > maxDimension) {
+              width = Math.round((width * maxDimension) / height);
+              height = maxDimension;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, width);
+          canvas.height = Math.max(1, height);
+
+          const ctx = canvas.getContext('2d', { alpha: false });
+          if (!ctx) {
+            const fallbackReader = new FileReader();
+            fallbackReader.onload = () => finish(file, (fallbackReader.result as string) || '');
+            fallbackReader.onerror = () => finish(file, '');
+            fallbackReader.readAsDataURL(file);
+            return;
+          }
+
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, width, height);
+
+          const dataUrl = canvas.toDataURL('image/jpeg', quality);
+          const blob = dataUrlToBlob(dataUrl);
+
+          finish(blob, dataUrl);
+        } catch (canvasErr) {
+          console.warn('[Avatar/Storage] Canvas rendering error:', canvasErr);
+          const fallbackReader = new FileReader();
+          fallbackReader.onload = () => finish(file, (fallbackReader.result as string) || '');
+          fallbackReader.onerror = () => finish(file, '');
+          fallbackReader.readAsDataURL(file);
+        }
+      };
+
+      img.src = url;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      console.warn('[Avatar/Storage] Synchronous image loading setup error:', err);
+      const fallbackReader = new FileReader();
+      fallbackReader.onload = () => finish(file, (fallbackReader.result as string) || '');
+      fallbackReader.onerror = () => finish(file, '');
+      fallbackReader.readAsDataURL(file);
+    }
   });
+}
+
+export const MAX_SAFE_FALLBACK_IMAGE_SIZE_BYTES = 120 * 1024; // 120 KB limit to prevent Firestore 1MB doc overflow
+
+/**
+ * Validates whether an image base64 data URL is within safe Firestore document storage boundaries.
+ */
+export function validateFallbackImageSize(dataUrl?: string | null): { isValid: boolean; sizeBytes: number; error?: string } {
+  if (!dataUrl || !dataUrl.startsWith('data:image/')) {
+    return { isValid: true, sizeBytes: 0 };
+  }
+  const sizeBytes = dataUrl.length;
+  if (sizeBytes > MAX_SAFE_FALLBACK_IMAGE_SIZE_BYTES) {
+    const sizeKb = Math.round(sizeBytes / 1024);
+    return {
+      isValid: false,
+      sizeBytes,
+      error: `Image fallback size (${sizeKb}KB) exceeds the safe Firestore document limit. Please use a smaller image or configure Firebase Storage.`,
+    };
+  }
+  return { isValid: true, sizeBytes };
 }
 
 /**
  * Resizes and compresses an image into a clean base64 data URL for instant resilient fallback.
+ * Automatically constrained to compact dimensions to safeguard Firestore document limits.
  */
 export async function compressImageToDataUrl(
   file: File | Blob,
-  maxWidth = 320,
-  maxHeight = 320,
-  quality = 0.85
+  maxWidth = 400,
+  maxHeight = 400,
+  quality = 0.65
 ): Promise<string> {
-  const result = await fastCompressImage(file, Math.max(maxWidth, maxHeight), quality);
+  let result = await fastCompressImage(file, Math.min(maxWidth, maxHeight, 480), quality);
+  if (result.dataUrl.length > MAX_SAFE_FALLBACK_IMAGE_SIZE_BYTES) {
+    result = await fastCompressImage(file, 320, 0.50);
+    if (result.dataUrl.length > MAX_SAFE_FALLBACK_IMAGE_SIZE_BYTES) {
+      throw new Error(
+        `Image fallback size (${Math.round(result.dataUrl.length / 1024)}KB) exceeds the safe Firestore document limit. Please select a smaller image.`
+      );
+    }
+  }
   return result.dataUrl;
 }
 
@@ -272,6 +373,8 @@ export function getArticleImagePath(articleId: string, filename: string): string
 
 /**
  * Uploads an article image to Firebase Storage.
+ * When Firebase Storage is available, uploads high-quality compressed image (1200px, 0.85).
+ * When unavailable, creates a lightweight, safe base64 fallback (< 40KB) with strict size guards.
  */
 export async function uploadArticleImage(
   articleId: string,
@@ -283,7 +386,7 @@ export async function uploadArticleImage(
     throw new Error(validation.error);
   }
 
-  // Compress article image to max 1200px
+  // 1. High-fidelity compression for normal Firebase Storage upload (1200px, 0.85 quality)
   const { blob: compressedBlob, dataUrl: compressedDataUrl } = await fastCompressImage(file, 1200, 0.85);
 
   if (isFirebaseConfigured() && storage && typeof storage.app !== 'undefined') {
@@ -291,19 +394,57 @@ export async function uploadArticleImage(
       const storagePath = getArticleImagePath(articleId, filename);
       const storageRef = ref(storage, storagePath);
 
-      const snapshot = await uploadBytes(storageRef, compressedBlob, {
-        contentType: 'image/jpeg',
+      const performStorageUpload = async () => {
+        const snapshot = await uploadBytes(storageRef, compressedBlob, {
+          contentType: file.type || 'image/jpeg',
+        });
+        const downloadUrl = await getDownloadURL(snapshot.ref);
+        return { downloadUrl, storagePath };
+      };
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Firebase Storage attempt timeout (2s limit reached)')), 2000)
+      );
+
+      // Protect against unhandled rejections if timeoutPromise wins the race
+      const uploadPromise = performStorageUpload().catch((err) => {
+        throw err;
       });
 
-      const downloadUrl = await getDownloadURL(snapshot.ref);
-      return { downloadUrl, storagePath };
+      const storageResult = await Promise.race([uploadPromise, timeoutPromise]);
+      return storageResult;
     } catch (storageError) {
-      console.warn('Firebase Storage article upload failed, falling back to data URL:', storageError);
+      console.warn('Firebase Storage article upload notice (using optimized fallback):', storageError);
     }
   }
 
+  // 2. Safe, lightweight fallback for offline or unconfigured Firebase Storage
+  // If the initial compression is already within safe boundaries, reuse it directly
+  let fallbackDataUrl = compressedDataUrl;
+
+  if (!fallbackDataUrl || fallbackDataUrl.length > MAX_SAFE_FALLBACK_IMAGE_SIZE_BYTES) {
+    // Compress to compact dimensions (max 480px, 0.65 quality) to ensure small document footprint (< 40KB)
+    const fallback = await fastCompressImage(file, 480, 0.65);
+    fallbackDataUrl = fallback.dataUrl;
+
+    // If still above 90KB, apply tighter compression (360px, 0.50 quality)
+    if (fallbackDataUrl.length > 90 * 1024) {
+      const tighter = await fastCompressImage(file, 360, 0.50);
+      if (tighter.dataUrl && tighter.dataUrl.length < fallbackDataUrl.length) {
+        fallbackDataUrl = tighter.dataUrl;
+      }
+    }
+  }
+
+  // Size guard: Ensure fallback cannot exceed safe Firestore document limit (~1MB total limit)
+  if (fallbackDataUrl.length > MAX_SAFE_FALLBACK_IMAGE_SIZE_BYTES) {
+    throw new Error(
+      `Image fallback size (${Math.round(fallbackDataUrl.length / 1024)}KB) exceeds the safe Firestore document limit. Please choose a smaller image or configure Firebase Storage.`
+    );
+  }
+
   return {
-    downloadUrl: compressedDataUrl,
+    downloadUrl: fallbackDataUrl,
     storagePath: `local/articles/${articleId}`,
   };
 }

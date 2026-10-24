@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { onAuthStateChanged } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
+import { auth } from '../lib/firebase';
 import { useRouter } from '../context/RouterContext';
 import { Button } from '../components/common/Button';
 import { Breadcrumbs } from '../components/common/Breadcrumbs';
@@ -30,6 +32,14 @@ import {
   FileCheck2,
   Shield,
   Key,
+  Copy,
+  Check,
+  Mail,
+  Phone,
+  Clock,
+  User,
+  Info,
+  X,
 } from 'lucide-react';
 import { UserProfile, UserRole, AuditLogEntry, SystemSettings } from '../types';
 import {
@@ -42,14 +52,17 @@ import {
   subscribeToUsers,
   DESIGNATED_SUPER_ADMIN_EMAIL,
 } from '../services/userService';
-import { getAuditLogs } from '../services/auditService';
-import { getSystemSettings, updateSystemSettings, DEFAULT_SYSTEM_SETTINGS } from '../services/settingsService';
+import { getAuditLogs, logAuditEvent } from '../services/auditService';
+import { DEFAULT_SYSTEM_SETTINGS } from '../services/settingsService';
+import { useSystemSettings } from '../hooks/useSystemSettings';
 import { useArticles } from '../data/dataProvider';
+import { TheLegendsWikiLogo } from '../components/common/TheLegendsWikiLogo';
 
 export const SuperAdminPage: React.FC = () => {
-  const { currentUser, userProfile, effectiveRole, isSuperAdmin } = useAuth();
+  const { currentUser, userProfile, effectiveRole, isSuperAdmin, resetPasswordEmail } = useAuth();
   const { currentRoute, navigate } = useRouter();
-  const { articles } = useArticles();
+  const { articles } = useArticles({ includeAllStatuses: true, status: 'all' });
+  const { settings, updateSettings, loading: settingsLoading, error: settingsError } = useSystemSettings();
 
   // Tab State
   const initialTab = (currentRoute.type === 'super-admin' && currentRoute.tab) || 'admins';
@@ -60,12 +73,108 @@ export const SuperAdminPage: React.FC = () => {
   // Data States
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
-  const [settings, setSettings] = useState<SystemSettings>(DEFAULT_SYSTEM_SETTINGS);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
   const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
   const [actionErrorMessage, setActionErrorMessage] = useState<string | null>(null);
+
+  // User Profile Detail Modal & Security State
+  const [selectedUserDetails, setSelectedUserDetails] = useState<UserProfile | null>(null);
+  const [resetPasswordStatus, setResetPasswordStatus] = useState<{
+    loading: boolean;
+    successMessage: string | null;
+    errorMessage: string | null;
+  }>({
+    loading: false,
+    successMessage: null,
+    errorMessage: null,
+  });
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const handleCopy = (text: string, key: string) => {
+    if (!text) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2000);
+    } catch (err) {
+      console.warn('Could not copy to clipboard:', err);
+    }
+  };
+
+  const handleSendPasswordReset = async (email: string) => {
+    const cleanEmail = (email || '').trim().toLowerCase();
+    if (!cleanEmail) {
+      setResetPasswordStatus({
+        loading: false,
+        successMessage: null,
+        errorMessage: 'This account does not have a registered email address.',
+      });
+      return;
+    }
+    setResetPasswordStatus({ loading: true, successMessage: null, errorMessage: null });
+    try {
+      const result = await resetPasswordEmail(cleanEmail);
+      if (result.success) {
+        const activeProject = auth?.app?.options?.projectId || 'thelegendswiki';
+        setResetPasswordStatus({
+          loading: false,
+          successMessage: `Password reset request submitted for ${cleanEmail} via Firebase Authentication (Project: ${activeProject}). Please advise the user to check their email inbox and spam folder.`,
+          errorMessage: null,
+        });
+
+        // Record Super Admin audit event for password reset dispatch
+        logAuditEvent({
+          actorUid: actorInfo.uid || 'system-super-admin',
+          actorEmail: actorInfo.email || DESIGNATED_SUPER_ADMIN_EMAIL,
+          actorRole: 'super_admin',
+          action: 'Password Reset Dispatched',
+          targetId: selectedUserDetails?.id || cleanEmail,
+          targetTitle: `Password Reset: ${cleanEmail}`,
+          targetType: 'user',
+          details: `Super Admin dispatched official Firebase password reset link to ${cleanEmail} via Firebase project ${activeProject}.`,
+        }).catch(console.warn);
+      } else {
+        setResetPasswordStatus({
+          loading: false,
+          successMessage: null,
+          errorMessage: result.error || 'Failed to send password reset email.',
+        });
+      }
+    } catch (err: any) {
+      setResetPasswordStatus({
+        loading: false,
+        successMessage: null,
+        errorMessage: err?.message || 'Error triggering password reset email.',
+      });
+    }
+  };
+
+  const formatDateTime = (val?: string | number | any): { date: string; time: string; full: string; iso: string } => {
+    if (!val) {
+      return { date: '—', time: '', full: 'Not recorded', iso: '—' };
+    }
+    const d = new Date(val);
+    if (isNaN(d.getTime())) {
+      return { date: String(val), time: '', full: String(val), iso: String(val) };
+    }
+    return {
+      date: d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }),
+      time: d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+      full: d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      iso: d.toISOString(),
+    };
+  };
 
   // User Management Filters
   const [userSearchTerm, setUserSearchTerm] = useState<string>('');
@@ -97,9 +206,11 @@ export const SuperAdminPage: React.FC = () => {
   const [newRegionInput, setNewRegionInput] = useState<string>('');
 
   const actorInfo = useMemo(() => {
+    const activeUid = auth?.currentUser?.uid || currentUser?.uid || userProfile?.id || '';
+    const activeEmail = auth?.currentUser?.email || currentUser?.email || userProfile?.email || '';
     return {
-      uid: currentUser?.uid || 'usr-super-admin-01',
-      email: userProfile?.email || currentUser?.email || DESIGNATED_SUPER_ADMIN_EMAIL,
+      uid: activeUid,
+      email: activeEmail,
       role: 'super_admin' as const,
     };
   }, [currentUser, userProfile]);
@@ -112,42 +223,48 @@ export const SuperAdminPage: React.FC = () => {
     setActionErrorMessage(null);
 
     try {
-      const [fetchedUsers, fetchedLogs, fetchedSettings] = await Promise.all([
+      const [fetchedUsers, fetchedLogs] = await Promise.all([
         getAllUsers(),
         getAuditLogs(),
-        getSystemSettings(),
       ]);
 
       setUsers(fetchedUsers);
       setAuditLogs(fetchedLogs);
-      setSettings(fetchedSettings);
-      setSettingsForm(fetchedSettings);
-    } catch (err) {
-      console.warn('Error loading super admin data:', err);
+    } catch (err: any) {
+      console.error('[SuperAdminPage] Error loading super admin data:', err);
+      setActionErrorMessage(err?.message || 'Failed to load user records from Firestore.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
+  // Sync settingsForm whenever authoritative system settings load or change
+  useEffect(() => {
+    if (settings) {
+      setSettingsForm(settings);
+    }
+  }, [settings]);
+
   // Real-time synchronization
   useEffect(() => {
-    // 1. Initial loads for logs & settings
+    // 1. Initial loads for logs
     getAuditLogs().then(setAuditLogs).catch(console.warn);
-    getSystemSettings().then((s) => {
-      setSettings(s);
-      setSettingsForm(s);
-    }).catch(console.warn);
 
     // 2. Real-time users collection subscription
     const unsubscribeUsers = subscribeToUsers(
       (liveUsers) => {
         setUsers(liveUsers);
+        setActionErrorMessage(null);
         setLoading(false);
         setRefreshing(false);
+        setSelectedUserDetails((prev) => {
+          if (!prev) return null;
+          return liveUsers.find((u) => u.id === prev.id) || prev;
+        });
       },
       (err) => {
-        console.warn('Realtime subscription error in SuperAdminPage:', err);
+        console.warn('[SuperAdminPage] Realtime subscription notice in SuperAdminPage:', err?.message || err);
         setLoading(false);
         setRefreshing(false);
       }
@@ -160,16 +277,30 @@ export const SuperAdminPage: React.FC = () => {
         setUsers((prev) =>
           prev.map((u) => (u.id === customEvent.detail.userId ? { ...u, role: customEvent.detail.newRole } : u))
         );
+        setSelectedUserDetails((prev) => {
+          if (!prev || prev.id !== customEvent.detail.userId) return prev;
+          return { ...prev, role: customEvent.detail.newRole };
+        });
         // Refresh audit logs
         getAuditLogs().then(setAuditLogs).catch(console.warn);
       }
     };
 
+    const handleUserDeleted = (e: Event) => {
+      const customEvent = e as CustomEvent<{ userId: string; user?: UserProfile }>;
+      if (customEvent.detail?.userId) {
+        setUsers((prev) => prev.filter((u) => u.id !== customEvent.detail.userId));
+        getAuditLogs().then(setAuditLogs).catch(console.warn);
+      }
+    };
+
     window.addEventListener('thelegendswiki:user-role-changed', handleRoleChanged);
+    window.addEventListener('thelegendswiki:user-deleted', handleUserDeleted);
 
     return () => {
       unsubscribeUsers();
       window.removeEventListener('thelegendswiki:user-role-changed', handleRoleChanged);
+      window.removeEventListener('thelegendswiki:user-deleted', handleUserDeleted);
     };
   }, []);
 
@@ -209,6 +340,21 @@ export const SuperAdminPage: React.FC = () => {
         : `Re-enable account @${target.username} (${target.email}) to full standing?`,
       actionLabel: isSuspending ? 'Suspend Account' : 'Re-enable Account',
       actionType: isSuspending ? 'suspend' : 'activate',
+      targetUser: target,
+    });
+  };
+
+  const handleDeleteUserClick = (target: UserProfile) => {
+    if (target.email.toLowerCase() === DESIGNATED_SUPER_ADMIN_EMAIL.toLowerCase()) {
+      setActionErrorMessage('Cannot delete designated root Super Admin account.');
+      return;
+    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Contributor Account',
+      description: `Are you sure you want to permanently delete @${target.username} (${target.email})? This action cannot be undone and will purge the contributor record.`,
+      actionLabel: 'Delete Account',
+      actionType: 'delete',
       targetUser: target,
     });
   };
@@ -267,6 +413,17 @@ export const SuperAdminPage: React.FC = () => {
         } else {
           setActionErrorMessage(res.error || 'Failed to re-enable account.');
         }
+      } else if (actionType === 'delete') {
+        const res = await deleteUserAccount(target.id, actorInfo);
+        if (res.success) {
+          setUsers((prev) => prev.filter((u) => u.id !== target.id));
+          if (selectedUserDetails?.id === target.id) {
+            setSelectedUserDetails(null);
+          }
+          setActionSuccessMessage(`Successfully deleted account @${target.username}.`);
+        } else {
+          setActionErrorMessage(res.error || 'Failed to delete account.');
+        }
       }
       
       // Refresh audit logs
@@ -287,14 +444,54 @@ export const SuperAdminPage: React.FC = () => {
     setActionErrorMessage(null);
 
     try {
-      const updated = await updateSystemSettings(settingsForm, actorInfo);
-      setSettings(updated);
-      setSettingsForm(updated);
-      setActionSuccessMessage('Global system governance settings updated successfully.');
+      // Ensure the Save Governance Policy action waits for the authenticated Firebase user before attempting the Firestore write
+      if (auth && typeof auth.authStateReady === 'function') {
+        await auth.authStateReady();
+      }
+
+      let activeAuthUser = auth?.currentUser;
+      if (!activeAuthUser && auth) {
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(resolve, 2000);
+          const unsub = onAuthStateChanged(auth, (u) => {
+            if (u) {
+              activeAuthUser = u;
+              clearTimeout(timeout);
+              unsub();
+              resolve();
+            }
+          });
+        });
+      }
+
+      if (!activeAuthUser) {
+        throw new Error('Authentication required: An active Firebase Auth session for the Super Admin is required to save system settings.');
+      }
+
+      const activeActorEmail = activeAuthUser.email || currentUser?.email || userProfile?.email || DESIGNATED_SUPER_ADMIN_EMAIL;
+
+      const activeActor = {
+        uid: activeAuthUser.uid,
+        email: activeActorEmail,
+        role: 'super_admin' as const,
+      };
+
+      // 1. Flow: SuperAdminPage save handler -> useSystemSettings -> updateSystemSettings -> Firestore "system_settings/global_config"
+      const persisted = await updateSettings(settingsForm, activeActor);
+      
+      // 2. Update UI form state directly from verified backend data
+      setSettingsForm(persisted);
+      setActionSuccessMessage('Global system governance settings saved and verified in backend.');
+
+      // 3. Update audit log view
       const logs = await getAuditLogs();
       setAuditLogs(logs);
     } catch (err: any) {
-      setActionErrorMessage(err?.message || 'Failed to save settings.');
+      console.error('[SuperAdminPage] Failed to persist system settings to backend:', err);
+      // Explicitly show actual backend error, never show fake success
+      setActionErrorMessage(
+        err?.message || (typeof err === 'string' ? err : 'Failed to save system configuration to Firestore database.')
+      );
     } finally {
       setSavingSettings(false);
     }
@@ -411,9 +608,7 @@ export const SuperAdminPage: React.FC = () => {
         
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
           <div className="flex items-start gap-3.5">
-            <div className="w-12 h-12 rounded-sm bg-amber-500/20 border border-amber-400/40 text-amber-300 flex items-center justify-center font-bold shrink-0">
-              <ShieldCheck size={26} />
-            </div>
+            <TheLegendsWikiLogo size="lg" className="rounded-sm border border-amber-400/40 bg-slate-900/80 p-0.5 shadow-sm shrink-0" />
             <div>
               <div className="flex flex-wrap items-center gap-2 mb-1">
                 <span className="text-[10px] font-mono uppercase tracking-wider font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30 px-2 py-0.5 rounded-2xs">
@@ -664,18 +859,19 @@ export const SuperAdminPage: React.FC = () => {
               <table className="w-full text-left text-xs text-[#334155]">
                 <thead className="bg-[#f8fafc] border-b border-[#e2e8f0] text-[11px] font-mono uppercase tracking-wider text-[#64748b]">
                   <tr>
-                    <th className="py-3 px-4">Contributor / Account</th>
+                    <th className="py-3 px-4">Contributor & UID</th>
                     <th className="py-3 px-4">Email Address</th>
-                    <th className="py-3 px-4">Current Role</th>
-                    <th className="py-3 px-4">Account Status</th>
+                    <th className="py-3 px-4">Role</th>
+                    <th className="py-3 px-4">Registered On</th>
                     <th className="py-3 px-4">Last Active</th>
+                    <th className="py-3 px-4">Status</th>
                     <th className="py-3 px-4 text-right">Super Admin Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#f1f5f9]">
                   {filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-[#64748b]">
+                      <td colSpan={7} className="py-8 text-center text-[#64748b]">
                         No users match the selected search query or role filter.
                       </td>
                     </tr>
@@ -688,6 +884,8 @@ export const SuperAdminPage: React.FC = () => {
                         (user.role === 'admin' || user.role === 'editor' || user.role === 'administrator');
                       const isAccountUser =
                         !isRootSuperAdmin && !isAccountAdmin;
+                      const regInfo = formatDateTime(user.createdAt);
+                      const activeInfo = formatDateTime(user.lastActive);
 
                       return (
                         <tr
@@ -696,18 +894,18 @@ export const SuperAdminPage: React.FC = () => {
                             isRootSuperAdmin ? 'bg-amber-50/30' : ''
                           }`}
                         >
-                          {/* Name & Handle */}
+                          {/* Name, Handle & Firebase UID */}
                           <td className="py-3 px-4">
-                            <div className="flex items-center gap-2.5">
+                            <div className="flex items-start gap-2.5">
                               {user.photoURL ? (
                                 <img
                                   src={user.photoURL}
                                   alt={user.displayName}
                                   referrerPolicy="no-referrer"
-                                  className="w-8 h-8 rounded-sm object-cover border border-[#cbd5e1] shrink-0"
+                                  className="w-8 h-8 rounded-sm object-cover border border-[#cbd5e1] shrink-0 mt-0.5"
                                 />
                               ) : (
-                                <div className={`w-8 h-8 rounded-sm text-white flex items-center justify-center font-bold text-xs font-mono shrink-0 ${
+                                <div className={`w-8 h-8 rounded-sm text-white flex items-center justify-center font-bold text-xs font-mono shrink-0 mt-0.5 ${
                                   isRootSuperAdmin ? 'bg-amber-700' : 'bg-[#3366cc]'
                                 }`}>
                                   {user.displayName.charAt(0).toUpperCase()}
@@ -725,13 +923,54 @@ export const SuperAdminPage: React.FC = () => {
                                 <div className="text-[11px] font-mono text-[#64748b]">
                                   @{user.username}
                                 </div>
+                                <div className="flex items-center gap-1.5 mt-1 text-[10px] font-mono text-slate-500 bg-slate-100/90 border border-slate-200 px-1.5 py-0.5 rounded-2xs w-fit">
+                                  <span className="text-slate-400 font-sans">UID:</span>
+                                  <span className="truncate max-w-[120px] select-all" title={user.id}>
+                                    {user.id}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleCopy(user.id, `table-uid-${user.id}`);
+                                    }}
+                                    title="Copy Firebase UID"
+                                    className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                                  >
+                                    {copiedKey === `table-uid-${user.id}` ? (
+                                      <Check size={10} className="text-emerald-600" />
+                                    ) : (
+                                      <Copy size={10} />
+                                    )}
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           </td>
 
                           {/* Email */}
-                          <td className="py-3 px-4 font-mono text-xs text-[#0f172a]">
-                            {user.email}
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-1.5 font-mono text-xs text-[#0f172a]">
+                              <span>{user.email}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleCopy(user.email, `table-email-${user.id}`)}
+                                title="Copy email address"
+                                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                              >
+                                {copiedKey === `table-email-${user.id}` ? (
+                                  <Check size={10} className="text-emerald-600" />
+                                ) : (
+                                  <Copy size={10} />
+                                )}
+                              </button>
+                            </div>
+                            {user.phoneNumber && (
+                              <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1 mt-0.5">
+                                <Phone size={9} />
+                                <span>{user.phoneNumber}</span>
+                              </div>
+                            )}
                           </td>
 
                           {/* Role Badge */}
@@ -753,6 +992,24 @@ export const SuperAdminPage: React.FC = () => {
                             )}
                           </td>
 
+                          {/* Registration Date */}
+                          <td className="py-3 px-4 font-mono text-[11px]">
+                            <div className="text-[#0f172a] font-medium">{regInfo.date}</div>
+                            {regInfo.time && (
+                              <div className="text-[10px] text-[#64748b]">{regInfo.time}</div>
+                            )}
+                          </td>
+
+                          {/* Last Active */}
+                          <td className="py-3 px-4 font-mono text-[11px]">
+                            <div className="text-[#0f172a]">
+                              {user.lastActive ? activeInfo.date : 'Recently'}
+                            </div>
+                            {user.lastActive && activeInfo.time && (
+                              <div className="text-[10px] text-[#64748b]">{activeInfo.time}</div>
+                            )}
+                          </td>
+
                           {/* Status */}
                           <td className="py-3 px-4">
                             {user.disabled ? (
@@ -766,24 +1023,24 @@ export const SuperAdminPage: React.FC = () => {
                             )}
                           </td>
 
-                          {/* Last Active */}
-                          <td className="py-3 px-4 text-[#64748b] font-mono text-[11px]">
-                            {user.lastActive
-                              ? new Date(user.lastActive).toLocaleDateString(undefined, {
-                                  month: 'short',
-                                  day: 'numeric',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })
-                              : 'Recently'}
-                          </td>
-
                           {/* Actions */}
                           <td className="py-3 px-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
+                              {/* Details Button */}
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => setSelectedUserDetails(user)}
+                                icon={<Eye size={12} />}
+                                className="text-xs py-1 px-2 border-slate-300 text-slate-700 hover:text-slate-900 bg-white"
+                                title="View full user details, UID, timestamps, and account profile"
+                              >
+                                Details
+                              </Button>
+
                               {isRootSuperAdmin ? (
                                 <span className="text-[11px] font-mono text-amber-800 italic bg-amber-100/60 px-2 py-1 rounded-sm border border-amber-200">
-                                  Protected Super Admin
+                                  Protected Root
                                 </span>
                               ) : updatingUserId === user.id ? (
                                 <div className="inline-flex items-center gap-1.5 text-xs font-mono text-amber-700 bg-amber-50 px-2.5 py-1 rounded-sm border border-amber-200">
@@ -801,7 +1058,7 @@ export const SuperAdminPage: React.FC = () => {
                                       className="text-xs py-1 px-2.5 bg-blue-700 hover:bg-blue-800"
                                       title="Promote User to Admin role"
                                     >
-                                      Promote to Admin
+                                      Promote
                                     </Button>
                                   )}
 
@@ -814,7 +1071,7 @@ export const SuperAdminPage: React.FC = () => {
                                       className="text-xs py-1 px-2.5 border-amber-300 text-amber-900 bg-amber-50 hover:bg-amber-100"
                                       title="Remove Admin privileges and demote to User"
                                     >
-                                      Demote to User
+                                      Demote
                                     </Button>
                                   )}
 
@@ -829,6 +1086,15 @@ export const SuperAdminPage: React.FC = () => {
                                     }`}
                                   >
                                     {user.disabled ? <Unlock size={13} /> : <Lock size={13} />}
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteUserClick(user)}
+                                    title="Delete contributor account"
+                                    className="p-1.5 rounded-sm border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 transition-colors cursor-pointer"
+                                  >
+                                    <Trash2 size={13} />
                                   </button>
 
                                   <button
@@ -1010,6 +1276,109 @@ export const SuperAdminPage: React.FC = () => {
               />
             </div>
 
+            {/* Featured Series Promotional Banner */}
+            <div className="space-y-3 pt-2 border-t border-[#eaecf0]">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-semibold text-[#0f172a] uppercase tracking-wider font-mono">
+                  Featured Series Promotional Banner
+                </label>
+                <label className="flex items-center gap-2 text-xs font-mono text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settingsForm.featuredSeries?.active !== false}
+                    onChange={(e) =>
+                      setSettingsForm((prev) => ({
+                        ...prev,
+                        featuredSeries: {
+                          ...(prev.featuredSeries || {
+                            title: 'Who Taught Us to Want This?',
+                            slug: 'who-taught-us-to-want-this',
+                            bannerImageUrl: '',
+                            active: true,
+                          }),
+                          active: e.target.checked,
+                        },
+                      }))
+                    }
+                    className="rounded-sm border-slate-300 text-amber-600 focus:ring-amber-500"
+                  />
+                  <span>Active on Homepage</span>
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                <div className="space-y-1">
+                  <span className="font-mono text-[11px] text-slate-600">Series Title</span>
+                  <input
+                    type="text"
+                    value={settingsForm.featuredSeries?.title || 'Who Taught Us to Want This?'}
+                    onChange={(e) =>
+                      setSettingsForm((prev) => ({
+                        ...prev,
+                        featuredSeries: {
+                          ...(prev.featuredSeries || {
+                            slug: 'who-taught-us-to-want-this',
+                            bannerImageUrl: '',
+                            active: true,
+                          }),
+                          title: e.target.value,
+                        },
+                      }))
+                    }
+                    className="w-full text-xs p-2 border border-[#cbd5e1] rounded-sm bg-white text-[#0f172a] focus:outline-none focus:border-amber-600"
+                    placeholder="Who Taught Us to Want This?"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <span className="font-mono text-[11px] text-slate-600">Series URL Slug</span>
+                  <input
+                    type="text"
+                    value={settingsForm.featuredSeries?.slug || 'who-taught-us-to-want-this'}
+                    onChange={(e) =>
+                      setSettingsForm((prev) => ({
+                        ...prev,
+                        featuredSeries: {
+                          ...(prev.featuredSeries || {
+                            title: 'Who Taught Us to Want This?',
+                            bannerImageUrl: '',
+                            active: true,
+                          }),
+                          slug: e.target.value,
+                          targetPath: `/series/${e.target.value}`,
+                        },
+                      }))
+                    }
+                    className="w-full text-xs p-2 border border-[#cbd5e1] rounded-sm bg-white text-[#0f172a] focus:outline-none focus:border-amber-600 font-mono"
+                    placeholder="who-taught-us-to-want-this"
+                  />
+                </div>
+
+                <div className="space-y-1 md:col-span-2">
+                  <span className="font-mono text-[11px] text-slate-600">Custom Promotional Image URL</span>
+                  <input
+                    type="text"
+                    value={settingsForm.featuredSeries?.bannerImageUrl || ''}
+                    onChange={(e) =>
+                      setSettingsForm((prev) => ({
+                        ...prev,
+                        featuredSeries: {
+                          ...(prev.featuredSeries || {
+                            title: 'Who Taught Us to Want This?',
+                            slug: 'who-taught-us-to-want-this',
+                            active: true,
+                          }),
+                          bannerImageUrl: e.target.value,
+                        },
+                      }))
+                    }
+                    className="w-full text-xs p-2 border border-[#cbd5e1] rounded-sm bg-white text-[#0f172a] focus:outline-none focus:border-amber-600 font-mono"
+                    placeholder="https://... or upload custom artwork directly from Homepage banner"
+                  />
+                </div>
+              </div>
+            </div>
+
             {/* Region Taxonomy Governance */}
             <div className="space-y-3 pt-2 border-t border-[#eaecf0]">
               <label className="block text-xs font-semibold text-[#0f172a] uppercase tracking-wider font-mono">
@@ -1067,7 +1436,7 @@ export const SuperAdminPage: React.FC = () => {
                 icon={<Settings size={15} />}
                 className="bg-amber-700 hover:bg-amber-800"
               >
-                {savingSettings ? 'Saving Governance Policies...' : 'Save System Configuration'}
+                {savingSettings ? 'Saving Governance Policy...' : 'Save Governance Policy'}
               </Button>
             </div>
           </div>
@@ -1316,13 +1685,299 @@ export const SuperAdminPage: React.FC = () => {
                 size="sm"
                 onClick={executeModalAction}
                 className={
-                  confirmModal.actionType === 'demote' || confirmModal.actionType === 'suspend'
+                  confirmModal.actionType === 'demote' ||
+                  confirmModal.actionType === 'suspend' ||
+                  confirmModal.actionType === 'delete'
                     ? 'bg-red-700 hover:bg-red-800'
                     : 'bg-amber-700 hover:bg-amber-800'
                 }
               >
                 {confirmModal.actionLabel}
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* USER ACCOUNT & PROFILE DETAILS MODAL */}
+      {selectedUserDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-[#ffffff] border border-[#cbd5e1] rounded-sm max-w-2xl w-full p-6 shadow-2xl space-y-5 my-8">
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-[#eaecf0] pb-4">
+              <div className="flex items-center gap-3.5">
+                {selectedUserDetails.photoURL ? (
+                  <img
+                    src={selectedUserDetails.photoURL}
+                    alt={selectedUserDetails.displayName}
+                    referrerPolicy="no-referrer"
+                    className="w-12 h-12 rounded-sm object-cover border border-[#cbd5e1]"
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-sm bg-[#3366cc] text-white flex items-center justify-center font-bold text-base font-mono">
+                    {selectedUserDetails.displayName.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-bold font-serif text-[#0f172a]">
+                      {selectedUserDetails.displayName}
+                    </h2>
+                    {selectedUserDetails.email.toLowerCase() === DESIGNATED_SUPER_ADMIN_EMAIL.toLowerCase() && (
+                      <span className="text-[10px] font-mono uppercase font-bold bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded-2xs border border-amber-300">
+                        Root Super Admin
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs font-mono text-[#64748b]">
+                    @{selectedUserDetails.username}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedUserDetails(null);
+                  setResetPasswordStatus({ loading: false, successMessage: null, errorMessage: null });
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-sm hover:bg-slate-100 cursor-pointer"
+                title="Close modal"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Profile Grid Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 text-xs">
+              {/* Firebase Auth UID */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-sm space-y-1">
+                <div className="text-[10px] font-mono text-slate-500 uppercase tracking-wider font-semibold flex items-center justify-between">
+                  <span>Firebase Auth UID</span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(selectedUserDetails.id, 'modal-uid')}
+                    className="text-amber-700 hover:text-amber-800 flex items-center gap-1 font-sans text-[11px] cursor-pointer"
+                  >
+                    {copiedKey === 'modal-uid' ? (
+                      <Check size={12} className="text-emerald-600" />
+                    ) : (
+                      <Copy size={12} />
+                    )}
+                    <span>{copiedKey === 'modal-uid' ? 'Copied' : 'Copy UID'}</span>
+                  </button>
+                </div>
+                <div className="font-mono text-xs text-[#0f172a] font-medium break-all select-all bg-white p-1.5 rounded-2xs border border-slate-200">
+                  {selectedUserDetails.id}
+                </div>
+              </div>
+
+              {/* Email Address */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-sm space-y-1">
+                <div className="text-[10px] font-mono text-slate-500 uppercase tracking-wider font-semibold flex items-center justify-between">
+                  <span>Email Address</span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(selectedUserDetails.email, 'modal-email')}
+                    className="text-amber-700 hover:text-amber-800 flex items-center gap-1 font-sans text-[11px] cursor-pointer"
+                  >
+                    {copiedKey === 'modal-email' ? (
+                      <Check size={12} className="text-emerald-600" />
+                    ) : (
+                      <Copy size={12} />
+                    )}
+                    <span>{copiedKey === 'modal-email' ? 'Copied' : 'Copy Email'}</span>
+                  </button>
+                </div>
+                <div className="font-mono text-xs text-[#0f172a] font-medium break-all bg-white p-1.5 rounded-2xs border border-slate-200 flex items-center justify-between">
+                  <span>{selectedUserDetails.email}</span>
+                  <a
+                    href={`mailto:${selectedUserDetails.email}`}
+                    className="text-blue-600 hover:text-blue-800 ml-2 shrink-0"
+                    title="Send email"
+                  >
+                    <Mail size={13} />
+                  </a>
+                </div>
+              </div>
+
+              {/* Role & Privileges */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-sm space-y-1">
+                <div className="text-[10px] font-mono text-slate-500 uppercase tracking-wider font-semibold">
+                  Platform Role & Governance Authority
+                </div>
+                <div className="pt-0.5 flex items-center gap-2">
+                  <span
+                    className={`inline-flex items-center gap-1 text-[11px] font-mono font-bold uppercase px-2 py-0.5 rounded-sm border ${
+                      selectedUserDetails.role === 'super_admin'
+                        ? 'bg-amber-100 text-amber-900 border-amber-300'
+                        : selectedUserDetails.role === 'admin' || selectedUserDetails.role === 'editor'
+                        ? 'bg-blue-50 text-blue-800 border-blue-200'
+                        : 'bg-slate-100 text-slate-800 border-slate-200'
+                    }`}
+                  >
+                    <Shield size={12} />
+                    {selectedUserDetails.role.toUpperCase()}
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    {selectedUserDetails.role === 'super_admin'
+                      ? 'Root Administrative Authority'
+                      : selectedUserDetails.role === 'admin'
+                      ? 'Editorial & Moderation Staff'
+                      : 'Registered Contributor'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Account Status */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-sm space-y-1">
+                <div className="text-[10px] font-mono text-slate-500 uppercase tracking-wider font-semibold">
+                  Account Moderation Status
+                </div>
+                <div className="pt-0.5">
+                  {selectedUserDetails.disabled ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-mono font-semibold uppercase px-2 py-0.5 rounded-sm bg-red-100 text-red-800 border border-red-200">
+                      <Lock size={12} /> Suspended / Access Disabled
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-mono font-medium uppercase px-2 py-0.5 rounded-sm bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <CheckCircle2 size={12} /> Active & Good Standing
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Registration / Creation Date */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-sm space-y-1">
+                <div className="text-[10px] font-mono text-slate-500 uppercase tracking-wider font-semibold flex items-center gap-1">
+                  <Calendar size={11} /> Registration / Created Date
+                </div>
+                <div className="font-mono text-xs text-[#0f172a] font-medium">
+                  {formatDateTime(selectedUserDetails.createdAt).full}
+                </div>
+                <div className="text-[10px] font-mono text-slate-400">
+                  ISO: {formatDateTime(selectedUserDetails.createdAt).iso}
+                </div>
+              </div>
+
+              {/* Last Activity / Sign-in */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-sm space-y-1">
+                <div className="text-[10px] font-mono text-slate-500 uppercase tracking-wider font-semibold flex items-center gap-1">
+                  <Clock size={11} /> Last Activity / Sign-In
+                </div>
+                <div className="font-mono text-xs text-[#0f172a] font-medium">
+                  {selectedUserDetails.lastActive
+                    ? formatDateTime(selectedUserDetails.lastActive).full
+                    : 'Recently active'}
+                </div>
+                <div className="text-[10px] font-mono text-slate-400">
+                  ISO: {selectedUserDetails.lastActive ? formatDateTime(selectedUserDetails.lastActive).iso : '—'}
+                </div>
+              </div>
+
+              {/* Phone number */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-sm space-y-1">
+                <div className="text-[10px] font-mono text-slate-500 uppercase tracking-wider font-semibold flex items-center gap-1">
+                  <Phone size={11} /> Verified Contact Phone
+                </div>
+                <div className="font-mono text-xs text-[#0f172a]">
+                  {selectedUserDetails.phoneNumber || 'Not provided'}
+                </div>
+              </div>
+
+              {/* Authored Encyclopedia Articles */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-sm space-y-1">
+                <div className="text-[10px] font-mono text-slate-500 uppercase tracking-wider font-semibold flex items-center gap-1">
+                  <FileText size={11} /> Authored Encyclopedia Entries
+                </div>
+                <div className="font-mono text-xs font-bold text-blue-700">
+                  {selectedUserDetails.articlesCount ?? 0} published dossiers
+                </div>
+              </div>
+            </div>
+
+            {/* Biography */}
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-sm space-y-1 text-xs">
+              <div className="text-[10px] font-mono text-slate-500 uppercase tracking-wider font-semibold">
+                Scholar Bio & Research Background
+              </div>
+              <p className="text-slate-700 italic">
+                {selectedUserDetails.bio || 'No public biography provided by contributor.'}
+              </p>
+            </div>
+
+            {/* Security & Password Assistance Section */}
+            <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-sm space-y-3">
+              <div className="flex items-start gap-2.5 text-amber-900">
+                <Key size={18} className="text-amber-700 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <div className="font-bold font-serif text-xs uppercase tracking-wide">
+                    Authentication Security & Password Reset Flow
+                  </div>
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    Passwords are encrypted server-side by Firebase Authentication and are never transmitted, readable, or stored in Firestore. If the user has lost access or forgot their credentials, dispatch an official password reset link directly to their registered email address.
+                  </p>
+                </div>
+              </div>
+
+              {resetPasswordStatus.successMessage && (
+                <div className="p-2.5 bg-emerald-100 border border-emerald-300 rounded-sm text-xs text-emerald-800 font-medium flex items-center gap-2">
+                  <CheckCircle2 size={15} className="text-emerald-700 shrink-0" />
+                  <span>{resetPasswordStatus.successMessage}</span>
+                </div>
+              )}
+
+              {resetPasswordStatus.errorMessage && (
+                <div className="p-2.5 bg-red-100 border border-red-300 rounded-sm text-xs text-red-800 font-medium flex items-center gap-2">
+                  <AlertTriangle size={15} className="text-red-700 shrink-0" />
+                  <span>{resetPasswordStatus.errorMessage}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[11px] font-mono text-slate-600">
+                  Target: <strong className="text-slate-900">{selectedUserDetails.email}</strong>
+                  <span className="ml-1.5 text-[10px] text-slate-400 font-sans">
+                    ({auth?.app?.options?.projectId || 'thelegendswiki'})
+                  </span>
+                </span>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleSendPasswordReset(selectedUserDetails.email)}
+                  disabled={resetPasswordStatus.loading}
+                  icon={<Mail size={13} className={resetPasswordStatus.loading ? 'animate-spin' : ''} />}
+                  className="text-xs bg-white hover:bg-slate-50 border-amber-300 text-amber-900 font-medium cursor-pointer"
+                >
+                  {resetPasswordStatus.loading ? 'Dispatching Link...' : 'Send Password Reset Email'}
+                </Button>
+              </div>
+            </div>
+
+            {/* Footer Controls */}
+            <div className="pt-3 border-t border-[#eaecf0] flex flex-wrap items-center justify-between gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => navigate(`/user/${selectedUserDetails.username}`)}
+                icon={<ExternalLink size={13} />}
+                className="text-xs cursor-pointer"
+              >
+                View Public Profile
+              </Button>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedUserDetails(null);
+                    setResetPasswordStatus({ loading: false, successMessage: null, errorMessage: null });
+                  }}
+                  className="cursor-pointer"
+                >
+                  Close
+                </Button>
+              </div>
             </div>
           </div>
         </div>

@@ -69,6 +69,13 @@ export async function askAiAssistant(params: {
   currentArticleSlug?: string;
   currentArticleTitle?: string;
   currentArticleContent?: string;
+  availableArticles?: Array<{
+    id: string;
+    title: string;
+    slug: string;
+    category: string;
+    summary: string;
+  }>;
 }): Promise<AiChatResponse> {
   try {
     const res = await fetch('/api/ai/chat', {
@@ -136,6 +143,16 @@ export async function requestWritingAssist(params: {
 export async function performAiSearch(params: {
   query: string;
   category?: string;
+  availableArticles?: Array<{
+    id: string;
+    title: string;
+    slug: string;
+    category: string;
+    summary: string;
+    tags?: string[];
+    readingTime?: number;
+    featuredImage?: string;
+  }>;
 }): Promise<AiSearchResponse> {
   try {
     const res = await fetch('/api/ai/search', {

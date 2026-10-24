@@ -7,8 +7,10 @@ import {
   getUserByIdOrHandle, 
   ensureUserProfile, 
   normalizeHandle, 
-  formatDisplayHandle 
+  formatDisplayHandle,
+  setUserStatus
 } from '../services/userService';
+import { SuspendedAccountNotice } from '../components/auth/SuspendedAccountNotice';
 import { 
   uploadUserAvatar, 
   validateImageUpload, 
@@ -24,6 +26,7 @@ import {
   User,
   Shield,
   ShieldCheck,
+  ShieldAlert,
   Calendar,
   BookOpen,
   Award,
@@ -58,6 +61,8 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({ username = '' 
     currentUser, 
     loading: authLoading, 
     isSuperAdmin,
+    isAdmin,
+    isSuspended,
     updateUserPhoto,
     updateProfileData
   } = useAuth();
@@ -70,6 +75,7 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({ username = '' 
   const [notFound, setNotFound] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState<number>(0);
+  const [isUnsuspending, setIsUnsuspending] = useState<boolean>(false);
 
   // Avatar Upload Modal State
   const [photoModalOpen, setPhotoModalOpen] = useState<boolean>(false);
@@ -100,7 +106,7 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({ username = '' 
   // Main Profile Resolution Effect
   useEffect(() => {
     let isCancelled = false;
-    const fetchKey = `${cleanHandleParam}_${currentUser?.uid || 'guest'}_${authProfile?.id || ''}_${retryKey}`;
+    const fetchKey = `${cleanHandleParam}_${currentUser?.uid || 'guest'}_${authProfile?.id || ''}_${authProfile?.displayName || ''}_${authProfile?.bio || ''}_${retryKey}`;
 
     if (lastFetchedKeyRef.current === fetchKey && profile && !errorMessage) {
       setPageLoading(false);
@@ -135,11 +141,22 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({ username = '' 
 
         const isDirectDashboard = !cleanHandleParam || cleanHandleParam === 'me' || cleanHandleParam === 'profile' || cleanHandleParam === 'profile-dashboard';
 
-        if (isDirectDashboard) {
+        // Check if viewing own profile (direct route or via handle/username matching current user)
+        const isSelfProfile = isDirectDashboard || Boolean(
+          currentUser && (
+            cleanHandleParam === currentUser.uid ||
+            (authProfile && cleanHandleParam === normalizeHandle(authProfile.username)) ||
+            (authProfile && cleanHandleParam === authProfile.id) ||
+            (currentUser.email && cleanHandleParam === normalizeHandle(currentUser.email.split('@')[0]))
+          )
+        );
+
+        if (isSelfProfile) {
           if (currentUser) {
+            // Prioritize authoritative live authProfile from context or fresh ensureUserProfile from Firestore
             const guaranteedProfile = authProfile || await withTimeout(
               ensureUserProfile(currentUser),
-              3500,
+              4000,
               null
             );
 
@@ -148,18 +165,22 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({ username = '' 
             if (guaranteedProfile) {
               setProfile(guaranteedProfile);
               setEditDisplayName(guaranteedProfile.displayName);
-              setEditBio(guaranteedProfile.bio || '');
+              setEditBio(guaranteedProfile.bio || guaranteedProfile.scholarlyBiography || '');
               lastFetchedKeyRef.current = fetchKey;
+              return;
             } else {
               setNotFound(true);
+              return;
             }
           } else {
             setProfile(null);
+            return;
           }
         } else {
+          // Public contributor profile lookup from Firestore backend
           const loadedUser = await withTimeout(
             getUserByIdOrHandle(cleanHandleParam),
-            3500,
+            4000,
             null
           );
 
@@ -168,7 +189,7 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({ username = '' 
           if (loadedUser) {
             setProfile(loadedUser);
             setEditDisplayName(loadedUser.displayName);
-            setEditBio(loadedUser.bio || '');
+            setEditBio(loadedUser.bio || loadedUser.scholarlyBiography || '');
             lastFetchedKeyRef.current = fetchKey;
           } else {
             if (currentUser && (cleanHandleParam === normalizeHandle(currentUser.displayName) || cleanHandleParam === currentUser.uid)) {
@@ -176,7 +197,7 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({ username = '' 
               if (isCancelled) return;
               setProfile(own);
               setEditDisplayName(own.displayName);
-              setEditBio(own.bio || '');
+              setEditBio(own.bio || own.scholarlyBiography || '');
               lastFetchedKeyRef.current = fetchKey;
             } else {
               setNotFound(true);
@@ -207,12 +228,37 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({ username = '' 
     };
   }, [cleanHandleParam, currentUser, authProfile, authLoading, retryKey]);
 
+  // Synchronize displayed profile when authoritative authProfile updates in real-time
+  useEffect(() => {
+    if (authProfile && profile) {
+      const isSelf = profile.id === authProfile.id || normalizeHandle(profile.username) === normalizeHandle(authProfile.username);
+      if (isSelf) {
+        if (profile.displayName !== authProfile.displayName || profile.bio !== (authProfile.bio || authProfile.scholarlyBiography || '')) {
+          setProfile((prev) => (prev ? {
+            ...prev,
+            displayName: authProfile.displayName,
+            bio: authProfile.bio || authProfile.scholarlyBiography || '',
+            scholarlyBiography: authProfile.scholarlyBiography || authProfile.bio || '',
+          } : authProfile));
+          setEditDisplayName(authProfile.displayName);
+          setEditBio(authProfile.bio || authProfile.scholarlyBiography || '');
+        }
+      }
+    }
+  }, [authProfile, profile]);
+
   // Load Authored Articles
   useEffect(() => {
     let isCancelled = false;
 
     const fetchArticles = async () => {
       if (!profile?.id) {
+        setAuthoredArticles([]);
+        return;
+      }
+
+      // Exclude articles for suspended accounts from public view
+      if (profile.disabled && !isAdmin && !isSuperAdmin) {
         setAuthoredArticles([]);
         return;
       }
@@ -391,12 +437,21 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({ username = '' 
       setSavingProfile(true);
       setProfileSaveMessage(null);
 
+      const trimmedName = editDisplayName.trim() || profile.displayName;
+      const trimmedBio = editBio.trim();
+
       const updates: Partial<UserProfile> = {
-        displayName: editDisplayName.trim() || profile.displayName,
-        bio: editBio.trim(),
+        displayName: trimmedName,
+        bio: trimmedBio,
+        scholarlyBiography: trimmedBio,
       };
 
-      await updateProfileData(updates);
+      const result = await updateProfileData(updates);
+      if (!result.success) {
+        setProfileSaveMessage(result.error || 'Error updating profile.');
+        return;
+      }
+
       setProfile((prev) => (prev ? { ...prev, ...updates } : null));
 
       setProfileSaveMessage('Profile saved.');
@@ -522,7 +577,55 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({ username = '' 
 
   if (!profile) return null;
 
-  const isOwnProfile = currentUser && (currentUser.uid === profile.id || currentUser.email?.toLowerCase() === profile.email?.toLowerCase());
+  const isOwnProfile = Boolean(
+    (currentUser && (currentUser.uid === profile.id || currentUser.email?.toLowerCase() === profile.email?.toLowerCase())) ||
+    (!cleanHandleParam || cleanHandleParam === 'me' || cleanHandleParam === 'profile' || cleanHandleParam === 'profile-dashboard')
+  );
+
+  // CASE C: Suspended user themselves accessing their account or profile
+  if (isOwnProfile && !isSuperAdmin && (isSuspended || authProfile?.disabled || profile.disabled)) {
+    return (
+      <div className="max-w-4xl mx-auto py-8 px-4 space-y-6">
+        <Breadcrumbs items={[{ label: 'Encyclopedia Registry', path: '/' }, { label: 'Account Status' }]} />
+        <SuspendedAccountNotice isOwnAccount={true} />
+      </div>
+    );
+  }
+
+  // CASE B: Normal visitors and other normal users viewing a suspended account
+  // Must NOT show the suspended user's public profile, email, UID, bio, or articles.
+  // Display exactly: "This account is suspended."
+  if (profile.disabled && !isOwnProfile && !isAdmin && !isSuperAdmin) {
+    return (
+      <div className="max-w-4xl mx-auto py-8 px-4 space-y-6">
+        <Breadcrumbs items={[{ label: 'Encyclopedia Registry', path: '/' }, { label: 'Scholar Registry' }]} />
+        <SuspendedAccountNotice isOwnAccount={false} />
+      </div>
+    );
+  }
+
+  const handleAdminUnsuspend = async () => {
+    if (!profile) return;
+    try {
+      setIsUnsuspending(true);
+      const actorInfo = currentUser
+        ? {
+            uid: currentUser.uid,
+            email: currentUser.email || '',
+            role: isSuperAdmin ? 'super_admin' : 'admin',
+          }
+        : undefined;
+      const res = await setUserStatus(profile.id, false, actorInfo);
+      if (res.success) {
+        setProfile((prev) => (prev ? { ...prev, disabled: false } : null));
+      }
+    } catch (err) {
+      console.error('Failed to unsuspend user:', err);
+    } finally {
+      setIsUnsuspending(false);
+    }
+  };
+
   const initial = profile.displayName ? profile.displayName.charAt(0).toUpperCase() : 'S';
   const profileDisplayHandle = formatDisplayHandle(profile.username);
 
@@ -568,6 +671,38 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({ username = '' 
           { label: `Scholar: ${profile.displayName}` },
         ]}
       />
+
+      {/* Admin Management Clearance Banner if Viewing Suspended Profile */}
+      {profile.disabled && (isAdmin || isSuperAdmin) && (
+        <div 
+          id="admin-profile-suspension-banner"
+          className="bg-amber-50 border border-amber-300 rounded-sm p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-sm bg-amber-100 border border-amber-300 flex items-center justify-center text-amber-800 shrink-0">
+              <ShieldAlert size={18} />
+            </div>
+            <div>
+              <div className="font-bold text-xs text-amber-950 uppercase tracking-wider font-mono">
+                Administrative View &bull; Account is Suspended
+              </div>
+              <p className="text-xs text-amber-800 mt-0.5">
+                This account is currently restricted from public view and authenticated actions. As an authorized administrator, you can restore access.
+              </p>
+            </div>
+          </div>
+          <Button
+            id="admin-unsuspend-profile-btn"
+            variant="primary"
+            size="sm"
+            onClick={handleAdminUnsuspend}
+            disabled={isUnsuspending}
+            className="shrink-0"
+          >
+            {isUnsuspending ? 'Restoring...' : 'Unsuspend Account'}
+          </Button>
+        </div>
+      )}
 
       {/* Main Profile Header Card */}
       <div className="bg-[#ffffff] border border-[#a2a9b1] rounded-sm p-6 sm:p-8 shadow-xs relative">

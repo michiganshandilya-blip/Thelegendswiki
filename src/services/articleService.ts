@@ -11,106 +11,61 @@ import {
   orderBy, 
   limit, 
   increment,
-  writeBatch
+  writeBatch,
+  onSnapshot
 } from 'firebase/firestore';
-import { db, isFirebaseConfigured } from '../lib/firebase';
+import { auth, db, isFirebaseConfigured, getAuthBearerToken } from '../lib/firebase';
 import { Article, ArticleStatus } from '../types';
-import { validateArticle } from '../lib/validation';
+import { validateArticle, generateSlugFromTitle } from '../lib/validation';
 import { sanitizeArticlePayload, stripUndefined } from '../lib/sanitize';
 import { getDbTimestamp, formatTimestamp } from '../lib/timestamps';
 import { DEMO_ARTICLES } from '../data/demoData';
 import { recordAuditRevision } from './revisionService';
 import { logAuditEvent } from './auditService';
 import { withTimeout } from '../lib/asyncUtils';
+import { clearAllDraftBackupsForArticle, recordPublishedArticleIdentity, isKnownPublishedIdentity } from '../lib/draftStorage';
+import { getSystemSettings } from './settingsService';
+import { DESIGNATED_SUPER_ADMIN_EMAIL } from './userService';
+import { validateFallbackImageSize } from './storageService';
+
+/**
+ * Resolves current actor's operational privileges from Auth and Firestore.
+ */
+export async function resolveActorPermissions(explicitActor?: { uid?: string; email?: string; role?: string }): Promise<{ isSuperAdmin: boolean; isAdmin: boolean; isEditor: boolean }> {
+  const email = (explicitActor?.email || auth?.currentUser?.email || '').toLowerCase();
+  const uid = explicitActor?.uid || auth?.currentUser?.uid;
+  const role = explicitActor?.role;
+
+  if (email === DESIGNATED_SUPER_ADMIN_EMAIL.toLowerCase() || role === 'super_admin') {
+    return { isSuperAdmin: true, isAdmin: true, isEditor: true };
+  }
+
+  if (role === 'admin' || role === 'editor' || role === 'administrator') {
+    return { isSuperAdmin: false, isAdmin: true, isEditor: true };
+  }
+
+  if (uid && isFirebaseConfigured() && db) {
+    try {
+      const userSnap = await withTimeout(getDoc(doc(db, 'users', uid)), 2000, null);
+      if (userSnap && userSnap.exists()) {
+        const uRole = userSnap.data()?.role;
+        const isSuper = uRole === 'super_admin' || email === DESIGNATED_SUPER_ADMIN_EMAIL.toLowerCase();
+        const isAdm = isSuper || uRole === 'admin' || uRole === 'editor' || uRole === 'administrator';
+        return { isSuperAdmin: isSuper, isAdmin: isAdm, isEditor: isAdm };
+      }
+    } catch {
+      // safe fallback
+    }
+  }
+
+  return { isSuperAdmin: false, isAdmin: false, isEditor: false };
+}
 
 const ARTICLES_COLLECTION = 'articles';
 const FIRESTORE_TIMEOUT_MS = 3500;
 
-// In-memory demo drafts & moderation queue items for comprehensive testing
-let dynamicArticlesState: Article[] = [
-  ...DEMO_ARTICLES.map((a) => ({
-    ...a,
-    status: (a.status || 'published') as ArticleStatus,
-    featuredImage: a.featuredImage || a.image || '',
-    image: a.featuredImage || a.image || '',
-    citations: a.citations || a.references || [],
-    references: a.references || a.citations || [],
-  })),
-  {
-    id: 'art-pending-1',
-    title: 'The Great Alchemical Manuscripts of Zosimos',
-    slug: 'alchemical-manuscripts-zosimos',
-    summary: 'A critical survey of early metallurgical and mystical treatises authored in Hellenistic Egypt during the late 3rd century AD.',
-    category: 'Ancient Science & Philosophy',
-    categorySlug: 'science',
-    subCategory: 'Alchemy & Metallurgy',
-    tags: ['alchemy', 'hellenistic', 'manuscripts', 'chemistry'],
-    authorId: 'user-scholar-3',
-    author: 'Eratosthenes',
-    createdAt: new Date(Date.now() - 3600000 * 24).toISOString(),
-    updatedAt: new Date(Date.now() - 3600000 * 2).toISOString(),
-    lastUpdated: 'Recently',
-    status: 'pending_review',
-    submittedAt: new Date(Date.now() - 3600000 * 2).toISOString(),
-    views: 0,
-    viewCount: 0,
-    readingTimeMinutes: 4,
-    relatedArticleSlugs: ['library-of-alexandria'],
-    citations: [
-      {
-        id: 1,
-        title: 'Collection des anciens alchimistes grecs',
-        author: 'Berthelot, Marcellin',
-        year: '1888',
-      }
-    ],
-    sections: [
-      {
-        id: 'sec-intro',
-        title: 'Introduction and Chronology',
-        content: [
-          'Zosimos of Panopolis is widely regarded as one of the earliest authentic historical alchemists whose direct treatises have survived through Byzantine anthologies.',
-          'His works describe early distillation apparatus, tribikos reflux vessels, and the philosophical framework of chrysopoeia.'
-        ],
-      }
-    ]
-  },
-  {
-    id: 'art-changes-1',
-    title: 'Hydraulic Automata of Ctesibius',
-    slug: 'hydraulic-automata-ctesibius',
-    summary: 'Mechanical innovations in pneumatic water pumps, clepsydra water clocks, and pipe organs developed in 3rd century BC Alexandria.',
-    category: 'Engineering & Technology',
-    categorySlug: 'technology',
-    subCategory: 'Mechanical Engineering',
-    tags: ['engineering', 'automata', 'alexandria', 'inventions'],
-    authorId: 'user-scholar-4',
-    author: 'Claudius Ptolemy',
-    createdAt: new Date(Date.now() - 3600000 * 72).toISOString(),
-    updatedAt: new Date(Date.now() - 3600000 * 12).toISOString(),
-    lastUpdated: 'Yesterday',
-    status: 'changes_requested',
-    moderationNotes: 'Please provide at least 2 primary source citations from Vitruvius De Architectura regarding the water organ mechanism before publication.',
-    reviewedBy: 'Hypatia of Alexandria',
-    reviewedById: 'user-scholar-2',
-    reviewedAt: new Date(Date.now() - 3600000 * 12).toISOString(),
-    submittedAt: new Date(Date.now() - 3600000 * 24).toISOString(),
-    views: 12,
-    viewCount: 12,
-    readingTimeMinutes: 5,
-    relatedArticleSlugs: ['antikythera-mechanism'],
-    citations: [],
-    sections: [
-      {
-        id: 'sec-organ',
-        title: 'The Hydraulis Water Organ',
-        content: [
-          'The hydraulis was the earliest keyboard musical instrument, utilizing water pressure to maintain a steady air reservoir for bronze pipes.'
-        ],
-      }
-    ]
-  }
-];
+const LOCAL_DELETED_ARTICLES_KEY = 'thelegendswiki:deleted_articles';
+const LOCAL_ARTICLE_OVERRIDES_KEY = 'thelegendswiki:article_overrides';
 
 function cleanSlugHelper(rawSlug: string): string {
   if (!rawSlug) return '';
@@ -124,15 +79,400 @@ function cleanSlugHelper(rawSlug: string): string {
 }
 
 /**
+ * Returns set of deleted article IDs / slugs stored in persistent localStorage.
+ */
+export function getLocalDeletedIds(): Set<string> {
+  const set = new Set<string>();
+  if (typeof window === 'undefined' || !window.localStorage) return set;
+  try {
+    const raw = localStorage.getItem(LOCAL_DELETED_ARTICLES_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        for (const item of arr) {
+          if (item) {
+            const clean = String(item).toLowerCase().trim();
+            set.add(clean);
+            const slugClean = cleanSlugHelper(clean);
+            if (slugClean) set.add(slugClean);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // Ignore storage parse errors
+  }
+  return set;
+}
+
+/**
+ * Adds an article ID or slug to the persistent deleted set.
+ */
+export function saveLocalDeletedId(...idsOrSlugs: (string | undefined | null)[]) {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    const set = getLocalDeletedIds();
+    for (const item of idsOrSlugs) {
+      if (item) {
+        const clean = String(item).toLowerCase().trim();
+        set.add(clean);
+        const norm = cleanSlugHelper(clean);
+        if (norm) set.add(norm);
+      }
+    }
+    localStorage.setItem(LOCAL_DELETED_ARTICLES_KEY, JSON.stringify(Array.from(set)));
+  } catch (e) {
+    // Ignore storage write errors
+  }
+}
+
+/**
+ * Removes an article ID or slug from the persistent deleted set.
+ */
+export function removeLocalDeletedId(...idsOrSlugs: (string | undefined | null)[]) {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    const raw = localStorage.getItem(LOCAL_DELETED_ARTICLES_KEY);
+    if (!raw) return;
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return;
+    const toRemove = new Set<string>();
+    for (const item of idsOrSlugs) {
+      if (item) {
+        const clean = String(item).toLowerCase().trim();
+        toRemove.add(clean);
+        const norm = cleanSlugHelper(clean);
+        if (norm) toRemove.add(norm);
+      }
+    }
+    const updated = arr.filter((id) => !toRemove.has(String(id).toLowerCase().trim()));
+    localStorage.setItem(LOCAL_DELETED_ARTICLES_KEY, JSON.stringify(updated));
+  } catch (e) {
+    // Ignore storage errors
+  }
+}
+
+/**
+ * Checks if an article is marked as deleted in tombstones.
+ * CRITICAL IMMUNITY: Published and in-review articles must NEVER be suppressed by a deleted draft tombstone.
+ */
+export function isArticleDeleted(article: { id?: string; slug?: string; title?: string; status?: string } | string | null | undefined): boolean {
+  if (!article) return false;
+  const deletedSet = getLocalDeletedIds();
+  if (deletedSet.size === 0) return false;
+
+  if (typeof article === 'string') {
+    const clean = article.toLowerCase().trim();
+    const norm = cleanSlugHelper(clean);
+    if (
+      isArticlePublished(clean) ||
+      (norm && isArticlePublished(norm)) ||
+      isKnownPublishedIdentity(clean) ||
+      (norm && isKnownPublishedIdentity(norm))
+    ) {
+      return false;
+    }
+    return deletedSet.has(clean) || deletedSet.has(norm);
+  }
+
+  // Published articles are never suppressed by draft slug/title tombstones
+  if (article.status === 'published' || article.status === 'pending_review') {
+    const idClean = (article.id || '').toLowerCase().trim();
+    return idClean !== '' && deletedSet.has(idClean);
+  }
+
+  const idClean = (article.id || '').toLowerCase().trim();
+  const slugClean = (article.slug || '').toLowerCase().trim();
+  const normSlug = cleanSlugHelper(article.slug || '');
+  const titleNorm = cleanSlugHelper(article.title || '');
+
+  return (
+    (idClean !== '' && deletedSet.has(idClean)) ||
+    (slugClean !== '' && deletedSet.has(slugClean)) ||
+    (normSlug !== '' && deletedSet.has(normSlug)) ||
+    (titleNorm !== '' && deletedSet.has(titleNorm))
+  );
+}
+
+/**
+ * Checks synchronously whether an article ID or slug belongs to an already published article.
+ */
+export function isArticlePublished(idOrSlug?: string | null): boolean {
+  if (!idOrSlug) return false;
+  const clean = String(idOrSlug).trim().toLowerCase();
+  const norm = cleanSlugHelper(clean);
+
+  // Check known published identity registry
+  if (isKnownPublishedIdentity(clean) || (norm && isKnownPublishedIdentity(norm))) {
+    return true;
+  }
+
+  const inDynamic = dynamicArticlesState.some(
+    (a) =>
+      a.status === 'published' &&
+      ((a.id || '').toLowerCase() === clean ||
+        (a.slug || '').toLowerCase() === clean ||
+        cleanSlugHelper(a.slug || '') === norm)
+  );
+  if (inDynamic) return true;
+
+  const inDemo = DEMO_ARTICLES.some(
+    (a) =>
+      (a.id || '').toLowerCase() === clean ||
+      (a.slug || '').toLowerCase() === clean ||
+      cleanSlugHelper(a.slug || '') === norm
+  );
+  return inDemo;
+}
+
+/**
+ * Checks asynchronously (including querying Firestore if needed) whether an article ID or slug belongs to a published article.
+ */
+export async function isArticlePublishedAsync(idOrSlug?: string | null): Promise<boolean> {
+  if (!idOrSlug) return false;
+  if (isArticlePublished(idOrSlug)) return true;
+
+  const clean = String(idOrSlug).trim().toLowerCase();
+  const norm = cleanSlugHelper(clean);
+
+  if (isFirebaseConfigured() && db) {
+    try {
+      const candidates = [clean, norm].filter(Boolean);
+      for (const cand of candidates) {
+        const docRef = doc(db, ARTICLES_COLLECTION, cand);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data?.status === 'published' || data?.status === 'pending_review') {
+            recordPublishedArticleIdentity(docSnap.id, data?.slug);
+            return true;
+          }
+        }
+      }
+
+      // Check by slug query
+      const q = query(
+        collection(db, ARTICLES_COLLECTION),
+        where('slug', 'in', [clean, norm].filter(Boolean)),
+        where('status', 'in', ['published', 'pending_review'])
+      );
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        for (const d of snap.docs) {
+          recordPublishedArticleIdentity(d.id, d.data()?.slug);
+        }
+        return true;
+      }
+    } catch {
+      // fallback to synchronous check result
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Gets all locally persisted article overrides (e.g. status changes, review notes).
+ */
+export function getLocalArticleOverrides(): Map<string, Partial<Article>> {
+  const map = new Map<string, Partial<Article>>();
+  if (typeof window === 'undefined' || !window.localStorage) return map;
+  try {
+    const raw = localStorage.getItem(LOCAL_ARTICLE_OVERRIDES_KEY);
+    if (raw) {
+      const obj = JSON.parse(raw);
+      if (obj && typeof obj === 'object') {
+        for (const [k, v] of Object.entries(obj)) {
+          if (k && v && typeof v === 'object') {
+            map.set(k.toLowerCase().trim(), v as Partial<Article>);
+            const norm = cleanSlugHelper(k);
+            if (norm) map.set(norm, v as Partial<Article>);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // Ignore storage parse errors
+  }
+  return map;
+}
+
+const LOCAL_SAVED_DRAFTS_KEY = 'thelegendswiki:saved_drafts_v1';
+
+/**
+ * Retrieves all saved local drafts from localStorage.
+ */
+export function getLocalDrafts(): Article[] {
+  if (typeof window === 'undefined' || !window.localStorage) return [];
+  try {
+    const raw = localStorage.getItem(LOCAL_SAVED_DRAFTS_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        return arr.filter((a) => a && typeof a === 'object' && a.id);
+      }
+    }
+  } catch (e) {
+    // Ignore storage parse errors
+  }
+  return [];
+}
+
+/**
+ * Saves or updates a draft article in persistent localStorage.
+ * STRICT ENFORCEMENT: Only articles with status === 'draft' can be stored as local drafts.
+ */
+export function saveLocalDraft(draft: Article) {
+  if (typeof window === 'undefined' || !window.localStorage || !draft || !draft.id) return;
+  // SAFETY: If the article is published or submitted, it is NOT a draft!
+  if (draft.status !== 'draft') {
+    removeLocalDraft(draft.id, draft.slug);
+    return;
+  }
+  try {
+    const drafts = getLocalDrafts();
+    const cleanDraft = applyLocalOverrides(draft);
+    const updated = [cleanDraft, ...drafts.filter((d) => d.id !== cleanDraft.id && d.slug !== cleanDraft.slug)];
+    localStorage.setItem(LOCAL_SAVED_DRAFTS_KEY, JSON.stringify(updated.slice(0, 50)));
+  } catch (e) {
+    // Ignore storage write errors
+  }
+}
+
+/**
+ * Removes a draft article from persistent localStorage.
+ */
+export function removeLocalDraft(articleId: string, slug?: string) {
+  if (typeof window === 'undefined' || !window.localStorage || !articleId) return;
+  try {
+    const drafts = getLocalDrafts().filter(
+      (d) => d.id !== articleId && d.slug !== articleId && (!slug || (d.id !== slug && d.slug !== slug))
+    );
+    localStorage.setItem(LOCAL_SAVED_DRAFTS_KEY, JSON.stringify(drafts));
+  } catch (e) {
+    // Ignore storage errors
+  }
+}
+
+/**
+ * Persists an article update/status override to localStorage.
+ */
+export function saveLocalArticleOverride(key: string, updates: Partial<Article>) {
+  if (typeof window === 'undefined' || !window.localStorage || !key) return;
+  try {
+    const raw = localStorage.getItem(LOCAL_ARTICLE_OVERRIDES_KEY);
+    const obj = raw ? JSON.parse(raw) : {};
+    const cleanKey = key.toLowerCase().trim();
+    obj[cleanKey] = { ...(obj[cleanKey] || {}), ...updates };
+    const normKey = cleanSlugHelper(key);
+    if (normKey) {
+      obj[normKey] = { ...(obj[normKey] || {}), ...updates };
+    }
+    localStorage.setItem(LOCAL_ARTICLE_OVERRIDES_KEY, JSON.stringify(obj));
+  } catch (e) {
+    // Ignore storage write errors
+  }
+}
+
+/**
+ * Applies local status and metadata overrides to an article if any exist.
+ */
+function applyLocalOverrides(article: Article): Article {
+  if (!article) return article;
+  const overridesMap = getLocalArticleOverrides();
+  const idKey = (article.id || '').toLowerCase().trim();
+  const slugKey = (article.slug || '').toLowerCase().trim();
+  const normKey = cleanSlugHelper(article.slug || '');
+
+  const override = overridesMap.get(idKey) || overridesMap.get(slugKey) || overridesMap.get(normKey);
+  if (override) {
+    // If the article is published live in backend, do not let a stale local draft override revert its published status
+    if (article.status === 'published' && override.status === 'draft') {
+      const { status, ...restOverride } = override;
+      return { ...article, ...restOverride };
+    }
+    return { ...article, ...override };
+  }
+  return article;
+}
+
+// Baseline encyclopedia articles formatted with proper statuses and fallback assets
+const BASELINE_DEMO_ARTICLES: Article[] = DEMO_ARTICLES.map((a) => ({
+  ...a,
+  status: (a.status || 'published') as ArticleStatus,
+  featuredImage: a.featuredImage || a.image || '',
+  image: a.featuredImage || a.image || '',
+  citations: a.citations || a.references || [],
+  references: a.references || a.citations || [],
+}));
+
+/**
+ * Merges Firestore articles with baseline encyclopedia articles.
+ * Ensures non-deleted baseline articles remain available while Firestore articles take precedence.
+ */
+function mergeWithBaselineArticles(firestoreList: Article[]): Article[] {
+  const existingIds = new Set(firestoreList.map((a) => (a.id || '').toLowerCase().trim()));
+  const existingSlugs = new Set(firestoreList.map((a) => (a.slug || '').toLowerCase().trim()));
+
+  const nonConflictingDemo = BASELINE_DEMO_ARTICLES.filter((demo) => {
+    if (isArticleDeleted(demo)) return false;
+    const dId = (demo.id || '').toLowerCase().trim();
+    const dSlug = (demo.slug || '').toLowerCase().trim();
+    return !existingIds.has(dId) && !existingSlugs.has(dSlug);
+  });
+
+  return [...firestoreList, ...nonConflictingDemo];
+}
+
+// Initial template articles: combines local drafts and baseline demo articles
+const INITIAL_DYNAMIC_ARTICLES: Article[] = [
+  ...getLocalDrafts(),
+  ...BASELINE_DEMO_ARTICLES,
+];
+
+// In-memory dynamic state, filtered and overlaid with persistent state
+let dynamicArticlesState: Article[] = INITIAL_DYNAMIC_ARTICLES
+  .filter((a) => !isArticleDeleted(a))
+  .map((a) => applyLocalOverrides(a));
+
+/**
+ * Safely parses any Firestore timestamp representation or Date to standard ISO string.
+ */
+function formatTimestampToIso(val: any, fallback?: string): string {
+  if (!val) return fallback || new Date().toISOString();
+  if (typeof val === 'string') return val;
+  if (typeof val === 'object' && 'toDate' in val && typeof val.toDate === 'function') {
+    return val.toDate().toISOString();
+  }
+  if (typeof val === 'object' && 'seconds' in val) {
+    return new Date(val.seconds * 1000).toISOString();
+  }
+  if (typeof val === 'number') {
+    const ms = val > 1e11 ? val : val * 1000;
+    return new Date(ms).toISOString();
+  }
+  return fallback || new Date().toISOString();
+}
+
+/**
  * Normalizes Firestore document into an Article object with backward compatible fallbacks.
  */
 function normalizeArticleDoc(id: string, data: any): Article {
   const lastUpdatedFormatted = formatTimestamp(data.updatedAt || data.lastUpdated || data.createdAt);
+  const docId = (id || data.id || '').trim();
+  const cleanTitle = (data.title || '').trim();
+  const rawSlug = (data.slug || '').trim();
+  const safeSlug =
+    rawSlug ||
+    (cleanTitle ? generateSlugFromTitle(cleanTitle) : '') ||
+    docId.replace(/^art-/, '') ||
+    docId ||
+    `entry-${Date.now()}`;
 
   return {
-    id: id || data.id,
-    title: data.title || '',
-    slug: data.slug || '',
+    id: docId,
+    title: cleanTitle,
+    slug: safeSlug,
     summary: data.summary || '',
     pronunciation: data.pronunciation || undefined,
     articleType: data.articleType || 'general',
@@ -152,8 +492,8 @@ function normalizeArticleDoc(id: string, data: any): Article {
     tags: data.tags || [],
     authorId: data.authorId || 'system-editor',
     author: data.author || 'TheLegendsWiki Editorial Desk',
-    createdAt: data.createdAt || new Date().toISOString(),
-    updatedAt: data.updatedAt || new Date().toISOString(),
+    createdAt: formatTimestampToIso(data.createdAt),
+    updatedAt: formatTimestampToIso(data.updatedAt || data.lastUpdated || data.createdAt),
     lastUpdated: lastUpdatedFormatted,
     status: (data.status as ArticleStatus) || 'published',
     moderationNotes: data.moderationNotes || undefined,
@@ -177,6 +517,111 @@ function normalizeArticleDoc(id: string, data: any): Article {
 }
 
 /**
+ * Real-time subscription to articles in Firestore with optional status, category, and curtain filtering.
+ */
+export function subscribeToArticles(
+  callback: (articles: Article[]) => void,
+  options?: {
+    category?: string;
+    categorySlug?: string;
+    curtainLayer?: 'visible' | 'behind_curtains';
+    isBehindCurtains?: boolean;
+    limitCount?: number;
+    status?: ArticleStatus | 'all';
+    includeAllStatuses?: boolean;
+  },
+  onError?: (error: any) => void
+): () => void {
+  const effectiveLimit = options?.limitCount || 200;
+
+  const filterAndSort = (list: Article[]) => {
+    return list
+      .filter((a) => !isArticleDeleted(a))
+      .map((a) => applyLocalOverrides(a))
+      .filter((a) => {
+        if (!options?.includeAllStatuses && options?.status !== 'all') {
+          const targetStatus = options?.status || 'published';
+          if (a.status !== targetStatus) return false;
+        }
+
+        if (options?.categorySlug && options.categorySlug !== 'all') {
+          const catClean = options.categorySlug.toLowerCase();
+          const matchesCat =
+            (a.categorySlug && a.categorySlug.toLowerCase() === catClean) ||
+            (a.category && a.category.toLowerCase().includes(catClean)) ||
+            (Array.isArray(a.categories) && a.categories.some((c) => c && c.toLowerCase() === catClean));
+          if (!matchesCat) return false;
+        }
+
+        if (options?.curtainLayer) {
+          if (options.curtainLayer === 'behind_curtains' && !a.isBehindCurtains && a.curtainLayer !== 'behind_curtains') {
+            return false;
+          }
+          if (options.curtainLayer === 'visible' && (a.isBehindCurtains || a.curtainLayer === 'behind_curtains')) {
+            return false;
+          }
+        }
+
+        if (options?.isBehindCurtains !== undefined) {
+          if (Boolean(a.isBehindCurtains) !== options.isBehindCurtains) return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        return timeB - timeA;
+      })
+      .slice(0, effectiveLimit);
+  };
+
+  // Immediate emit from dynamic memory if available
+  const initial = filterAndSort(dynamicArticlesState);
+  if (initial.length > 0) {
+    try {
+      callback(initial);
+    } catch (e) {
+      console.warn('[articleService] Initial emit warning:', e);
+    }
+  }
+
+  if (!isFirebaseConfigured() || !db) {
+    return () => {};
+  }
+
+  try {
+    const articlesRef = collection(db, ARTICLES_COLLECTION);
+    const q = query(articlesRef, limit(250));
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const firestoreList = snapshot.docs.map((docSnap) =>
+          normalizeArticleDoc(docSnap.id, docSnap.data())
+        );
+
+        // Keep dynamic memory state synchronized with both Firestore and baseline articles
+        const mergedList = mergeWithBaselineArticles(firestoreList);
+        dynamicArticlesState = [...mergedList];
+
+        const filtered = filterAndSort(mergedList);
+        callback(filtered);
+      },
+      (error) => {
+        console.warn('[articleService] onSnapshot articles error:', error?.message || error);
+        if (onError) onError(error);
+      }
+    );
+
+    return unsubscribe;
+  } catch (err) {
+    console.warn('[articleService] Error creating onSnapshot for articles:', err);
+    return () => {};
+  }
+}
+
+/**
  * Retrieves all published articles with optional category filtering, curtain layer filtering, and limit.
  */
 export async function getPublishedArticles(options?: {
@@ -185,37 +630,50 @@ export async function getPublishedArticles(options?: {
   curtainLayer?: 'visible' | 'behind_curtains';
   isBehindCurtains?: boolean;
   limitCount?: number;
+  status?: ArticleStatus | 'all';
+  includeAllStatuses?: boolean;
 }): Promise<Article[]> {
   const effectiveLimit = options?.limitCount || 50;
 
   const filterList = (list: Article[]) => {
-    return list.filter((a) => {
-      if (a.status && a.status !== 'published') return false;
-
-      if (options?.categorySlug && options.categorySlug !== 'all') {
-        const catClean = options.categorySlug.toLowerCase();
-        const matchesCat = 
-          (a.categorySlug && a.categorySlug.toLowerCase() === catClean) ||
-          (a.category && a.category.toLowerCase().includes(catClean)) ||
-          (a.categories && a.categories.some((c) => c.toLowerCase() === catClean));
-        if (!matchesCat) return false;
-      }
-
-      if (options?.curtainLayer) {
-        if (options.curtainLayer === 'behind_curtains' && !a.isBehindCurtains && a.curtainLayer !== 'behind_curtains') {
-          return false;
+    return list
+      .filter((a) => !isArticleDeleted(a))
+      .map((a) => applyLocalOverrides(a))
+      .filter((a) => {
+        if (!options?.includeAllStatuses && options?.status !== 'all') {
+          const targetStatus = options?.status || 'published';
+          if (a.status !== targetStatus) return false;
         }
-        if (options.curtainLayer === 'visible' && (a.isBehindCurtains || a.curtainLayer === 'behind_curtains')) {
-          return false;
+
+        if (options?.categorySlug && options.categorySlug !== 'all') {
+          const catClean = options.categorySlug.toLowerCase();
+          const matchesCat = 
+            (a.categorySlug && a.categorySlug.toLowerCase() === catClean) ||
+            (a.category && a.category.toLowerCase().includes(catClean)) ||
+            (a.categories && a.categories.some((c) => c.toLowerCase() === catClean));
+          if (!matchesCat) return false;
         }
-      }
 
-      if (options?.isBehindCurtains !== undefined) {
-        if (Boolean(a.isBehindCurtains) !== options.isBehindCurtains) return false;
-      }
+        if (options?.curtainLayer) {
+          if (options.curtainLayer === 'behind_curtains' && !a.isBehindCurtains && a.curtainLayer !== 'behind_curtains') {
+            return false;
+          }
+          if (options.curtainLayer === 'visible' && (a.isBehindCurtains || a.curtainLayer === 'behind_curtains')) {
+            return false;
+          }
+        }
 
-      return true;
-    });
+        if (options?.isBehindCurtains !== undefined) {
+          if (Boolean(a.isBehindCurtains) !== options.isBehindCurtains) return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        return timeB - timeA;
+      });
   };
 
   const localFallback = filterList(dynamicArticlesState).slice(0, effectiveLimit);
@@ -227,25 +685,26 @@ export async function getPublishedArticles(options?: {
   try {
     const fetchFn = async () => {
       const articlesRef = collection(db, ARTICLES_COLLECTION);
-      let q = query(articlesRef, where('status', '==', 'published'), limit(effectiveLimit));
-
-      if (options?.categorySlug && options.categorySlug !== 'all') {
-        q = query(
-          articlesRef,
-          where('status', '==', 'published'),
-          where('categorySlug', '==', options.categorySlug.toLowerCase()),
-          limit(effectiveLimit)
-        );
-      }
+      const q = query(articlesRef, limit(250));
 
       const snapshot = await getDocs(q);
-      const list = snapshot.docs.map((docSnap) => normalizeArticleDoc(docSnap.id, docSnap.data()));
+      const rawList = snapshot.docs.map((docSnap) => normalizeArticleDoc(docSnap.id, docSnap.data()));
+      const merged = mergeWithBaselineArticles(rawList);
+      dynamicArticlesState = [...merged];
 
-      // Merge dynamic articles in session state
+      const list = merged
+        .filter((a) => !isArticleDeleted(a))
+        .map((a) => applyLocalOverrides(a));
+
+      // Merge local drafts if published
       const idSet = new Set(list.map((a) => a.id));
-      for (const d of dynamicArticlesState) {
-        if (d.status === 'published' && !idSet.has(d.id)) {
-          list.push(d);
+      const slugSet = new Set(list.map((a) => a.slug));
+      for (const d of getLocalDrafts()) {
+        if (!isArticleDeleted(d)) {
+          const applied = applyLocalOverrides(d);
+          if (applied.status === 'published' && !idSet.has(applied.id) && (!applied.slug || !slugSet.has(applied.slug))) {
+            list.push(applied);
+          }
         }
       }
 
@@ -267,7 +726,10 @@ export async function getAllArticlesForModeration(options?: {
   searchQuery?: string;
 }): Promise<Article[]> {
   const filterList = (list: Article[]): Article[] => {
-    let filtered = [...list];
+    let filtered = list
+      .filter((a) => !isArticleDeleted(a))
+      .map((a) => applyLocalOverrides(a));
+
     if (options?.status && options.status !== 'all') {
       filtered = filtered.filter((a) => a.status === options.status);
     }
@@ -297,7 +759,10 @@ export async function getAllArticlesForModeration(options?: {
       const q = query(articlesRef, limit(200));
 
       const snapshot = await getDocs(q);
-      const list = snapshot.docs.map((docSnap) => normalizeArticleDoc(docSnap.id, docSnap.data()));
+      const list = snapshot.docs
+        .map((docSnap) => normalizeArticleDoc(docSnap.id, docSnap.data()))
+        .filter((a) => !isArticleDeleted(a))
+        .map((a) => applyLocalOverrides(a));
 
       // Create a lookup of remote IDs and slugs
       const remoteIds = new Set<string>();
@@ -307,10 +772,13 @@ export async function getAllArticlesForModeration(options?: {
         if (a.slug) remoteSlugs.add(a.slug);
       }
 
-      // Merge dynamic in-memory items only if not already represented in remote database
-      for (const d of dynamicArticlesState) {
-        if (!remoteIds.has(d.id) && (!d.slug || !remoteSlugs.has(d.slug))) {
-          list.push(d);
+      // Merge dynamic in-memory items only from local user drafts, never hardcoded demo data
+      for (const d of getLocalDrafts()) {
+        if (!isArticleDeleted(d)) {
+          const applied = applyLocalOverrides(d);
+          if (!remoteIds.has(applied.id) && (!applied.slug || !remoteSlugs.has(applied.slug))) {
+            list.push(applied);
+          }
         }
       }
 
@@ -328,7 +796,7 @@ export async function getAllArticlesForModeration(options?: {
  * Retrieves a single published article by its unique slug with multi-layer fallback.
  */
 export async function getArticleBySlug(slug: string): Promise<Article | null> {
-  if (!slug) return null;
+  if (!slug || isArticleDeleted(slug)) return null;
 
   const rawDecoded = decodeURIComponent(slug).trim();
   const normalizedSlug = cleanSlugHelper(rawDecoded);
@@ -336,21 +804,23 @@ export async function getArticleBySlug(slug: string): Promise<Article | null> {
 
   const findInList = (list: Article[]): Article | null => {
     for (const a of list) {
-      if (!a) continue;
-      const aSlug = (a.slug || '').toLowerCase().trim();
-      const aId = (a.id || '').toLowerCase().trim();
-      const aNormSlug = cleanSlugHelper(a.slug || '');
-      const aNormTitle = cleanSlugHelper(a.title || '');
+      if (!a || isArticleDeleted(a)) continue;
+      const applied = applyLocalOverrides(a);
+      const aSlug = (applied.slug || '').toLowerCase().trim();
+      const aId = (applied.id || '').toLowerCase().trim();
+      const aNormSlug = cleanSlugHelper(applied.slug || '');
+      const aNormTitle = cleanSlugHelper(applied.title || '');
 
       if (
         aSlug === lowerSlug ||
         aSlug === normalizedSlug ||
-        aNormSlug === normalizedSlug ||
+        (normalizedSlug && aNormSlug === normalizedSlug) ||
         aId === lowerSlug ||
         aId === `art-${normalizedSlug}` ||
-        aNormTitle === normalizedSlug
+        aId.replace(/^art-/, '') === lowerSlug ||
+        (normalizedSlug && aNormTitle === normalizedSlug)
       ) {
-        return a;
+        return applied;
       }
     }
     return null;
@@ -361,71 +831,112 @@ export async function getArticleBySlug(slug: string): Promise<Article | null> {
     try {
       const articlesRef = collection(db, ARTICLES_COLLECTION);
 
-      // Strategy A: Query by slug
-      const q1 = query(articlesRef, where('slug', '==', normalizedSlug), limit(1));
-      const snap1 = await getDocs(q1);
-      if (!snap1.empty) {
-        return normalizeArticleDoc(snap1.docs[0].id, snap1.docs[0].data());
-      }
-
-      // Strategy B: Query by rawDecoded slug
-      if (rawDecoded !== normalizedSlug) {
-        const q2 = query(articlesRef, where('slug', '==', rawDecoded), limit(1));
-        const snap2 = await getDocs(q2);
-        if (!snap2.empty) {
-          return normalizeArticleDoc(snap2.docs[0].id, snap2.docs[0].data());
+      // Strategy A: Query by slug (prioritize published/review over draft)
+      if (normalizedSlug) {
+        const q1 = query(articlesRef, where('slug', '==', normalizedSlug), limit(5));
+        const snap1 = await getDocs(q1);
+        if (!snap1.empty) {
+          const docs = snap1.docs.map((d) => normalizeArticleDoc(d.id, d.data()));
+          const best = docs.find((d) => (d.status === 'published' || d.status === 'pending_review') && !isArticleDeleted(d)) || docs.find((d) => !isArticleDeleted(d));
+          if (best) return applyLocalOverrides(best);
         }
       }
 
-      // Strategy C: Direct doc reference lookup
-      const directRef = doc(db, ARTICLES_COLLECTION, rawDecoded);
-      const directSnap = await getDoc(directRef);
-      if (directSnap.exists()) {
-        return normalizeArticleDoc(directSnap.id, directSnap.data());
+      // Strategy B: Query by rawDecoded slug
+      if (rawDecoded && rawDecoded !== normalizedSlug) {
+        const q2 = query(articlesRef, where('slug', '==', rawDecoded), limit(5));
+        const snap2 = await getDocs(q2);
+        if (!snap2.empty) {
+          const docs = snap2.docs.map((d) => normalizeArticleDoc(d.id, d.data()));
+          const best = docs.find((d) => (d.status === 'published' || d.status === 'pending_review') && !isArticleDeleted(d)) || docs.find((d) => !isArticleDeleted(d));
+          if (best) return applyLocalOverrides(best);
+        }
       }
 
-      const directArtRef = doc(db, ARTICLES_COLLECTION, `art-${normalizedSlug}`);
-      const directArtSnap = await getDoc(directArtRef);
-      if (directArtSnap.exists()) {
-        return normalizeArticleDoc(directArtSnap.id, directArtSnap.data());
+      // Strategy C: Direct doc reference lookups
+      const docCandidates = [
+        rawDecoded,
+        normalizedSlug,
+        rawDecoded.startsWith('art-') ? rawDecoded : `art-${rawDecoded}`,
+        normalizedSlug ? `art-${normalizedSlug}` : '',
+        rawDecoded.replace(/^art-/, ''),
+      ].filter(Boolean);
+
+      for (const cand of docCandidates) {
+        const directRef = doc(db, ARTICLES_COLLECTION, cand);
+        const directSnap = await getDoc(directRef);
+        if (directSnap.exists()) {
+          const art = normalizeArticleDoc(directSnap.id, directSnap.data());
+          if (!isArticleDeleted(art)) return applyLocalOverrides(art);
+        }
       }
     } catch (firestoreError) {
       console.warn(`Firestore lookup error for slug "${slug}", checking local fallback:`, firestoreError);
     }
   }
 
-  // 2. Search dynamic in-memory articles and DEMO_ARTICLES
-  const localMatch = findInList(dynamicArticlesState) || findInList(DEMO_ARTICLES);
-  return localMatch || null;
+  // 2. Search dynamic in-memory articles & persistent local drafts
+  const localMatch = findInList(dynamicArticlesState) || findInList(getLocalDrafts());
+  if (localMatch && !isArticleDeleted(localMatch)) {
+    return applyLocalOverrides(localMatch);
+  }
+
+  // 3. Fallback to baseline encyclopedia articles
+  const demoMatch = findInList(BASELINE_DEMO_ARTICLES) || findInList(DEMO_ARTICLES);
+  if (demoMatch && !isArticleDeleted(demoMatch)) {
+    return applyLocalOverrides(demoMatch);
+  }
+
+  return null;
 }
 
 /**
  * Retrieves a single article by its Firestore document ID.
  */
 export async function getArticleById(id: string): Promise<Article | null> {
-  if (!id) return null;
+  if (!id || isArticleDeleted(id)) return null;
 
   if (isFirebaseConfigured() && db) {
     try {
-      const docRef = doc(db, ARTICLES_COLLECTION, id);
-      const docSnap = await getDoc(docRef);
-
-      if (docSnap.exists()) {
-        return normalizeArticleDoc(docSnap.id, docSnap.data());
+      const candidates = [id, `art-${id}`, id.replace(/^art-/, '')].filter(Boolean);
+      for (const cand of candidates) {
+        const docRef = doc(db, ARTICLES_COLLECTION, cand);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const art = normalizeArticleDoc(docSnap.id, docSnap.data());
+          if (!isArticleDeleted(art)) return applyLocalOverrides(art);
+        }
       }
     } catch (error) {
       console.warn(`Error querying article by id "${id}":`, error);
     }
   }
 
-  const clean = cleanSlugHelper(id);
-  const found = dynamicArticlesState.find((a) => a.id === id || a.slug === id || cleanSlugHelper(a.slug) === clean) ||
-                DEMO_ARTICLES.find((a) => a.id === id || a.slug === id || cleanSlugHelper(a.slug) === clean);
-  if (found) {
-    return normalizeArticleDoc(found.id, { ...found, status: found.status || 'published' });
+  const localMatch =
+    dynamicArticlesState.find(
+      (a) => !isArticleDeleted(a) && (a.id === id || a.slug === id || a.id === `art-${id}` || a.id.replace(/^art-/, '') === id)
+    ) ||
+    getLocalDrafts().find(
+      (a) => !isArticleDeleted(a) && (a.id === id || a.slug === id || a.id === `art-${id}` || a.id.replace(/^art-/, '') === id)
+    );
+
+  if (localMatch) {
+    return applyLocalOverrides(localMatch);
   }
 
-  return getArticleBySlug(id);
+  const clean = cleanSlugHelper(id);
+  const found =
+    BASELINE_DEMO_ARTICLES.find(
+      (a) => !isArticleDeleted(a) && (a.id === id || a.slug === id || cleanSlugHelper(a.slug) === clean)
+    ) ||
+    DEMO_ARTICLES.find(
+      (a) => !isArticleDeleted(a) && (a.id === id || a.slug === id || cleanSlugHelper(a.slug) === clean)
+    );
+  if (found) {
+    return applyLocalOverrides(normalizeArticleDoc(found.id, { ...found, status: found.status || 'published' }));
+  }
+
+  return null;
 }
 
 /**
@@ -433,52 +944,136 @@ export async function getArticleById(id: string): Promise<Article | null> {
  */
 export async function getArticleBySlugOrId(identifier: string): Promise<Article | null> {
   if (!identifier) return null;
-  return getArticleBySlug(identifier) || getArticleById(identifier);
+  const bySlug = await getArticleBySlug(identifier);
+  if (bySlug) return bySlug;
+  return await getArticleById(identifier);
 }
 
 /**
  * Creates a new article in Firestore.
  */
 export async function createArticle(
-  articleData: Omit<Article, 'id'>
-): Promise<{ id: string; success: boolean; errors?: Record<string, string> }> {
+  articleData: Omit<Article, 'id'>,
+  actorInfo?: { uid?: string; email?: string; role?: string }
+): Promise<{ id: string; success: boolean; errors?: Record<string, string>; error?: string }> {
+  const settings = await getSystemSettings();
   const cleanData = sanitizeArticlePayload(articleData) as Omit<Article, 'id'>;
+  const actor = await resolveActorPermissions(actorInfo || {
+    uid: cleanData.authorId,
+    email: auth?.currentUser?.email || undefined,
+  });
 
-  const validation = validateArticle(cleanData);
+  // 1. Enforce Platform Maintenance Mode (restricted exclusively to Super Admins)
+  if (settings.maintenanceMode && !actor.isSuperAdmin) {
+    return {
+      id: '',
+      success: false,
+      error: 'Platform Maintenance Mode is active. Article creation and authoring are currently frozen and restricted exclusively to Super Admins.',
+    };
+  }
+
+  // 2. Enforce Allow Public User Submissions
+  if (!settings.allowPublicSubmissions && !actor.isAdmin) {
+    if (cleanData.status !== 'draft') {
+      return {
+        id: '',
+        success: false,
+        error: 'Public user submissions are currently paused by platform governance.',
+      };
+    }
+  }
+
+  // 3. Enforce Require Editorial Peer Review
+  if (settings.requirePeerReview && !actor.isAdmin && cleanData.status === 'published') {
+    cleanData.status = 'pending_review';
+  }
+
+  const isDraft = cleanData.status === 'draft';
+  const targetTitle = (cleanData.title || '').trim() || (isDraft ? 'Untitled Draft' : '');
+  const generatedId = (cleanData as any).id
+    ? (cleanData as any).id
+    : isDraft
+    ? `draft-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`
+    : `art-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+  const targetSlug =
+    (cleanData.slug || '').trim() ||
+    generateSlugFromTitle(targetTitle) ||
+    generatedId.replace(/^(art-|draft-)/, '') ||
+    generatedId;
+
+  const fullData: Omit<Article, 'id'> = {
+    ...cleanData,
+    title: targetTitle,
+    slug: targetSlug,
+    status: cleanData.status || 'draft',
+  };
+
+  // 4. Enforce Automated Link & Spam Detection (controlled by autoFlagSpam)
+  const validation = validateArticle(fullData, { checkSpam: settings.autoFlagSpam });
   if (!validation.isValid) {
     return { id: '', success: false, errors: validation.errors };
   }
 
-  const generatedId = `art-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-  const now = getDbTimestamp();
+  // 5. Enforce safe image fallback size limits to protect Firestore 1MB document limit
+  const featCheck = validateFallbackImageSize(fullData.featuredImage || fullData.image);
+  if (!featCheck.isValid) {
+    return { id: '', success: false, error: featCheck.error };
+  }
+  if (Array.isArray(fullData.sections)) {
+    for (let i = 0; i < fullData.sections.length; i++) {
+      const figUrl = fullData.sections[i]?.figure?.url;
+      if (figUrl) {
+        const figCheck = validateFallbackImageSize(figUrl);
+        if (!figCheck.isValid) {
+          return { id: '', success: false, error: `Section ${i + 1} ${figCheck.error}` };
+        }
+      }
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+  const dbTimestamp = getDbTimestamp();
 
   const payload: Article = {
-    ...cleanData,
+    ...fullData,
     id: generatedId,
-    status: cleanData.status || 'draft',
-    viewCount: cleanData.viewCount || 0,
-    views: cleanData.views || 0,
-    createdAt: now,
-    updatedAt: now,
+    slug: targetSlug,
+    status: fullData.status || 'draft',
+    viewCount: fullData.viewCount || 0,
+    views: fullData.views || 0,
+    createdAt: nowIso,
+    updatedAt: nowIso,
     lastUpdated: 'Just now',
   };
 
-  // Add to dynamic session state
-  dynamicArticlesState.unshift(payload);
+  // Add to dynamic session state and persistent local drafts
+  dynamicArticlesState = [payload, ...dynamicArticlesState.filter((a) => a.id !== generatedId)];
+  if (payload.status === 'draft') {
+    saveLocalDraft(payload);
+  } else {
+    recordPublishedArticleIdentity(generatedId, targetSlug);
+    removeLocalDraft(generatedId, targetSlug);
+    clearAllDraftBackupsForArticle(payload.authorId || 'anonymous', generatedId, targetSlug, 'new');
+  }
+  removeLocalDeletedId(generatedId, targetSlug, payload.title);
 
   // Record audit revision
-  await recordAuditRevision({
-    articleId: generatedId,
-    articleTitle: payload.title,
-    articleSlug: payload.slug,
-    editorId: payload.authorId || 'contributor',
-    editorName: payload.author,
-    actionType: payload.status === 'pending_review' ? 'submission' : 'draft_saved',
-    changeSummary: payload.status === 'pending_review' 
-      ? 'Initial submission for editorial peer review' 
-      : 'Initial article draft created',
-    newContent: typeof payload.content === 'string' ? payload.content : JSON.stringify(payload.sections),
-  });
+  try {
+    await recordAuditRevision({
+      articleId: generatedId,
+      articleTitle: payload.title,
+      articleSlug: payload.slug,
+      editorId: payload.authorId || 'contributor',
+      editorName: payload.author,
+      actionType: payload.status === 'pending_review' ? 'submission' : 'draft_saved',
+      changeSummary: payload.status === 'pending_review' 
+        ? 'Initial submission for editorial peer review' 
+        : 'Initial article draft created',
+      newContent: typeof payload.content === 'string' ? payload.content : JSON.stringify(payload.sections),
+    });
+  } catch (revErr) {
+    console.warn('Draft revision logging notice:', revErr);
+  }
 
   if (!isFirebaseConfigured() || !db) {
     return { id: generatedId, success: true };
@@ -487,11 +1082,44 @@ export async function createArticle(
   try {
     const articlesRef = collection(db, ARTICLES_COLLECTION);
     const newDocRef = doc(articlesRef, generatedId);
-    await setDoc(newDocRef, stripUndefined(payload), { merge: true });
+    const firestorePayload = {
+      ...payload,
+      createdAt: dbTimestamp,
+      updatedAt: dbTimestamp,
+    };
+    await withTimeout(
+      setDoc(newDocRef, stripUndefined(firestorePayload), { merge: true }),
+      FIRESTORE_TIMEOUT_MS,
+      undefined
+    );
     return { id: generatedId, success: true };
   } catch (err: any) {
-    console.warn('Firestore write failed, saved in session memory:', err);
-    return { id: generatedId, success: true };
+    console.warn('Direct Firestore article create encounter notice, attempting server backend fallback:', err);
+    try {
+      const token = await getAuthBearerToken();
+      const resp = await fetch('/api/articles/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ article: payload, actor: actorInfo }),
+      });
+      if (resp.ok) {
+        const resData = await resp.json();
+        if (resData.success) {
+          return { id: generatedId, success: true };
+        }
+      }
+    } catch (fallbackErr) {
+      console.warn('Backend fallback article save notice:', fallbackErr);
+    }
+
+    // If both direct and server write failed, keep local draft intact
+    if (payload.status === 'draft') {
+      return { id: generatedId, success: true };
+    }
+    return { id: generatedId, success: false, error: err.message || 'Failed to save draft to database.' };
   }
 }
 
@@ -500,22 +1128,139 @@ export async function createArticle(
  */
 export async function updateArticle(
   id: string,
-  articleData: Partial<Article>
-): Promise<{ success: boolean; errors?: Record<string, string> }> {
+  articleData: Partial<Article>,
+  actorInfo?: { uid?: string; email?: string; role?: string }
+): Promise<{ success: boolean; errors?: Record<string, string>; error?: string }> {
   if (!id) throw new Error('Article ID is required for update.');
 
-  const cleanData = sanitizeArticlePayload(articleData);
-  const now = new Date().toISOString();
+  const settings = await getSystemSettings();
+  const actor = await resolveActorPermissions(actorInfo);
 
-  // Update in memory
-  const idx = dynamicArticlesState.findIndex((a) => a.id === id || a.slug === id);
-  if (idx >= 0) {
-    dynamicArticlesState[idx] = {
-      ...dynamicArticlesState[idx],
-      ...cleanData,
-      updatedAt: now,
-      lastUpdated: 'Just now',
+  // 1. Enforce Platform Maintenance Mode (restricted exclusively to Super Admins)
+  if (settings.maintenanceMode && !actor.isSuperAdmin) {
+    return {
+      success: false,
+      error: 'Platform Maintenance Mode is active. Article modifications and revisions are currently frozen and restricted exclusively to Super Admins.',
     };
+  }
+
+  const cleanData = sanitizeArticlePayload(articleData);
+
+  // 2. Enforce Allow Public User Submissions
+  if (!settings.allowPublicSubmissions && !actor.isAdmin) {
+    if (cleanData.status === 'pending_review' || cleanData.status === 'published') {
+      return {
+        success: false,
+        error: 'Public user submissions are currently paused by platform governance.',
+      };
+    }
+  }
+
+  // 3. Enforce Require Editorial Peer Review
+  if (settings.requirePeerReview && !actor.isAdmin && cleanData.status === 'published') {
+    cleanData.status = 'pending_review';
+  }
+
+  // 4. Enforce Automated Link & Spam Detection when submitting or modifying published
+  if (cleanData.status === 'pending_review' || cleanData.status === 'published') {
+    let existingArt =
+      dynamicArticlesState.find((a) => a.id === id || a.slug === id) ||
+      DEMO_ARTICLES.find((a) => a.id === id || a.slug === id);
+    if (!existingArt) {
+      existingArt = (await getArticleById(id)) || (await getArticleBySlug(id)) || undefined;
+    }
+    const merged = { ...(existingArt || {}), ...cleanData };
+    const validation = validateArticle(merged, { checkSpam: settings.autoFlagSpam });
+    if (!validation.isValid) {
+      return { success: false, errors: validation.errors };
+    }
+  }
+
+  // Enforce safe image fallback size limits to protect Firestore 1MB document limit
+  const featCheck = validateFallbackImageSize(cleanData.featuredImage || cleanData.image);
+  if (!featCheck.isValid) {
+    return { success: false, error: featCheck.error };
+  }
+  if (Array.isArray(cleanData.sections)) {
+    for (let i = 0; i < cleanData.sections.length; i++) {
+      const figUrl = cleanData.sections[i]?.figure?.url;
+      if (figUrl) {
+        const figCheck = validateFallbackImageSize(figUrl);
+        if (!figCheck.isValid) {
+          return { success: false, error: `Section ${i + 1} ${figCheck.error}` };
+        }
+      }
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+  const dbTimestamp = getDbTimestamp();
+
+  // Update in memory dynamic state
+  let existing = dynamicArticlesState.find((a) => a.id === id || a.slug === id);
+  if (!existing) {
+    existing = DEMO_ARTICLES.find((a) => a.id === id || a.slug === id);
+  }
+
+  const fallbackBase: Article = {
+    id,
+    title: '',
+    slug: '',
+    summary: '',
+    authorId: '',
+    author: 'Contributor',
+    category: 'General',
+    categorySlug: 'general',
+    status: 'draft',
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    lastUpdated: 'Just now',
+    views: 0,
+    readingTimeMinutes: 2,
+    relatedArticleSlugs: [],
+    sections: [],
+    tags: [],
+    citations: [],
+    references: [],
+  };
+
+  const targetSlug =
+    (cleanData.slug || '').trim() ||
+    (existing?.slug || '').trim() ||
+    generateSlugFromTitle(cleanData.title || existing?.title || '') ||
+    (id || '').replace(/^art-/, '') ||
+    id;
+
+  const updatedArticle: Article = {
+    ...(existing || fallbackBase),
+    ...cleanData,
+    id: existing?.id || id,
+    slug: targetSlug,
+    updatedAt: nowIso,
+    lastUpdated: 'Just now',
+  };
+
+  const idx = dynamicArticlesState.findIndex((a) => a.id === id || a.slug === id || a.id === updatedArticle.id);
+  if (idx >= 0) {
+    dynamicArticlesState[idx] = updatedArticle;
+  } else {
+    dynamicArticlesState.unshift(updatedArticle);
+  }
+
+  if (updatedArticle.status === 'draft') {
+    saveLocalDraft(updatedArticle);
+  } else {
+    recordPublishedArticleIdentity(id, targetSlug);
+    recordPublishedArticleIdentity(updatedArticle.id, updatedArticle.slug);
+    removeLocalDraft(id, targetSlug);
+    removeLocalDraft(updatedArticle.id, updatedArticle.slug);
+    const authorUid = actorInfo?.uid || updatedArticle.authorId || 'anonymous';
+    clearAllDraftBackupsForArticle(authorUid, id, targetSlug, updatedArticle.id, updatedArticle.slug, 'new');
+  }
+  removeLocalDeletedId(id, targetSlug, updatedArticle.title);
+  saveLocalArticleOverride(id, updatedArticle);
+  if (updatedArticle.slug) {
+    saveLocalArticleOverride(updatedArticle.slug, updatedArticle);
   }
 
   if (!isFirebaseConfigured() || !db) {
@@ -524,18 +1269,44 @@ export async function updateArticle(
 
   try {
     const docRef = doc(db, ARTICLES_COLLECTION, id);
-    await setDoc(
-      docRef,
-      stripUndefined({
-        ...cleanData,
-        updatedAt: getDbTimestamp(),
-      }),
-      { merge: true }
+    const firestorePayload = {
+      ...cleanData,
+      id: updatedArticle.id,
+      slug: targetSlug,
+      updatedAt: dbTimestamp,
+    };
+    await withTimeout(
+      setDoc(docRef, stripUndefined(firestorePayload), { merge: true }),
+      FIRESTORE_TIMEOUT_MS,
+      undefined
     );
     return { success: true };
   } catch (error: any) {
-    console.warn('Firestore update error, updated in session state:', error);
-    return { success: true };
+    console.warn('Direct Firestore article update encounter notice, attempting server backend fallback:', error);
+    try {
+      const token = await getAuthBearerToken();
+      const resp = await fetch('/api/articles/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ article: updatedArticle, actor: actorInfo }),
+      });
+      if (resp.ok) {
+        const resData = await resp.json();
+        if (resData.success) {
+          return { success: true };
+        }
+      }
+    } catch (fallbackErr) {
+      console.warn('Backend fallback article update notice:', fallbackErr);
+    }
+
+    if (updatedArticle.status === 'draft') {
+      return { success: true };
+    }
+    return { success: false, error: error.message || 'Failed to update draft in database.' };
   }
 }
 
@@ -546,9 +1317,29 @@ export async function submitArticleForReview(
   articleId: string,
   authorId: string,
   authorName: string,
-  changeSummary: string = 'Submitted draft for editorial peer review'
+  changeSummary: string = 'Submitted draft for editorial peer review',
+  actorInfo?: { uid?: string; email?: string; role?: string }
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const settings = await getSystemSettings();
+    const actor = await resolveActorPermissions(actorInfo || { uid: authorId });
+
+    // 1. Enforce Platform Maintenance Mode
+    if (settings.maintenanceMode && !actor.isSuperAdmin) {
+      return {
+        success: false,
+        error: 'Platform Maintenance Mode is active. Submissions are currently frozen and restricted exclusively to Super Admins.',
+      };
+    }
+
+    // 2. Enforce Allow Public User Submissions
+    if (!settings.allowPublicSubmissions && !actor.isAdmin) {
+      return {
+        success: false,
+        error: 'Public user submissions are currently paused by platform governance.',
+      };
+    }
+
     const article = await getArticleById(articleId);
     if (!article) return { success: false, error: 'Article not found' };
 
@@ -557,7 +1348,13 @@ export async function submitArticleForReview(
       submittedAt: new Date().toISOString(),
     };
 
-    await updateArticle(articleId, updatePayload);
+    const updateRes = await updateArticle(articleId, updatePayload, actorInfo || { uid: authorId });
+    if (!updateRes.success) {
+      return {
+        success: false,
+        error: updateRes.error || (updateRes.errors ? Object.values(updateRes.errors)[0] : 'Failed to submit article.'),
+      };
+    }
 
     await recordAuditRevision({
       articleId,
@@ -609,6 +1406,13 @@ export async function approveArticle(
       lastUpdated: 'Just now',
     };
 
+    // Save persistent local overrides
+    saveLocalArticleOverride(targetId, updatePayload);
+    saveLocalArticleOverride(targetSlug, updatePayload);
+    if (articleId !== targetId) {
+      saveLocalArticleOverride(articleId, updatePayload);
+    }
+
     // Update in memory dynamic state
     let matched = false;
     dynamicArticlesState = dynamicArticlesState.map((a) => {
@@ -648,6 +1452,19 @@ export async function approveArticle(
         if (articleId !== targetId) {
           const altRef = doc(db, ARTICLES_COLLECTION, articleId);
           await setDoc(altRef, stripUndefined({ ...article, ...updatePayload, status: 'published' }), { merge: true });
+        }
+        if (targetSlug) {
+          try {
+            const slugQuery = query(collection(db, ARTICLES_COLLECTION), where('slug', '==', targetSlug));
+            const slugSnap = await getDocs(slugQuery);
+            for (const sDoc of slugSnap.docs) {
+              if (sDoc.id !== targetId && sDoc.id !== articleId) {
+                await setDoc(sDoc.ref, stripUndefined({ ...updatePayload, status: 'published' }), { merge: true });
+              }
+            }
+          } catch (sqErr) {
+            // Ignore sub-query error
+          }
         }
       } catch (fErr) {
         console.warn('Firestore approval write notice:', fErr);
@@ -839,6 +1656,13 @@ export async function rejectArticle(
       lastUpdated: 'Just now',
     };
 
+    // Save persistent local overrides
+    saveLocalArticleOverride(targetId, updatePayload);
+    saveLocalArticleOverride(targetSlug, updatePayload);
+    if (articleId !== targetId) {
+      saveLocalArticleOverride(articleId, updatePayload);
+    }
+
     // Update in memory dynamic state
     let matched = false;
     dynamicArticlesState = dynamicArticlesState.map((a) => {
@@ -878,6 +1702,19 @@ export async function rejectArticle(
         if (articleId !== targetId) {
           const altRef = doc(db, ARTICLES_COLLECTION, articleId);
           await setDoc(altRef, stripUndefined({ ...article, ...updatePayload, status: 'rejected' }), { merge: true });
+        }
+        if (targetSlug) {
+          try {
+            const slugQuery = query(collection(db, ARTICLES_COLLECTION), where('slug', '==', targetSlug));
+            const slugSnap = await getDocs(slugQuery);
+            for (const sDoc of slugSnap.docs) {
+              if (sDoc.id !== targetId && sDoc.id !== articleId) {
+                await setDoc(sDoc.ref, stripUndefined({ ...updatePayload, status: 'rejected' }), { merge: true });
+              }
+            }
+          } catch (sqErr) {
+            // Ignore sub-query error
+          }
         }
       } catch (fErr) {
         console.warn('Firestore rejection write notice:', fErr);
@@ -928,6 +1765,204 @@ export async function rejectArticle(
 export const cancelArticle = rejectArticle;
 
 /**
+ * Deletes a draft article with ownership verification, Firestore deletion,
+ * and comprehensive cleanup of local recovery caches and auto-save state.
+ */
+export async function deleteDraft(
+  draftIdOrSlug: string,
+  userAuth: { uid: string; email?: string; role?: string }
+): Promise<{ success: boolean; error?: string }> {
+  if (!draftIdOrSlug) return { success: false, error: 'Draft identifier is required.' };
+  if (!userAuth || !userAuth.uid) {
+    return { success: false, error: 'Authentication required to delete drafts.' };
+  }
+
+  const settings = await getSystemSettings();
+  const actorPerms = await resolveActorPermissions(userAuth);
+  if (settings.maintenanceMode && !actorPerms.isSuperAdmin) {
+    return {
+      success: false,
+      error: 'Platform Maintenance Mode is active. Draft deletion is frozen and restricted exclusively to Super Admins.',
+    };
+  }
+
+  // 0. ABSOLUTE GUARD: If identifier belongs to any known published article, REFUSE immediately!
+  if (isKnownPublishedIdentity(draftIdOrSlug) || isArticlePublished(draftIdOrSlug)) {
+    return {
+      success: false,
+      error: 'Protected: Identifier matches a published encyclopedia article. Operation aborted to preserve published content.',
+    };
+  }
+
+  // 1. Fetch draft to verify existence, status, and ownership
+  const article = (await getArticleById(draftIdOrSlug)) || (await getArticleBySlug(draftIdOrSlug));
+
+  // CRITICAL SAFETY GUARD: deleteDraft must NEVER delete a published or submitted article!
+  if (article) {
+    if (article.status === 'published') {
+      recordPublishedArticleIdentity(article.id, article.slug);
+      return {
+        success: false,
+        error: 'Protected: Cannot delete a published article using deleteDraft. Published articles must remain intact in the encyclopedia.',
+      };
+    }
+    if (article.status === 'pending_review') {
+      return {
+        success: false,
+        error: 'Protected: Cannot delete an article currently pending editorial review.',
+      };
+    }
+    if (article.status !== 'draft') {
+      return {
+        success: false,
+        error: 'Protected: Only drafts can be deleted via deleteDraft.',
+      };
+    }
+  }
+
+  // Cross-check in-memory dynamic state and demo articles
+  const publishedMatch =
+    dynamicArticlesState.find(
+      (a) => (a.id === draftIdOrSlug || a.slug === draftIdOrSlug) && a.status === 'published'
+    ) ||
+    DEMO_ARTICLES.find(
+      (a) => (a.id === draftIdOrSlug || a.slug === draftIdOrSlug) && a.status === 'published'
+    );
+  if (publishedMatch) {
+    recordPublishedArticleIdentity(publishedMatch.id, publishedMatch.slug);
+    return {
+      success: false,
+      error: 'Protected: Identifier matches a published encyclopedia article. Operation aborted to preserve published content.',
+    };
+  }
+
+  const targetId = article?.id || draftIdOrSlug;
+  const targetSlug = article?.slug || draftIdOrSlug;
+  const title = article?.title || draftIdOrSlug;
+
+  const isOwner = article
+    ? article.authorId === userAuth.uid ||
+      article.authorId === 'anonymous' ||
+      !article.authorId ||
+      (!!article.authorEmail && !!userAuth.email && article.authorEmail.toLowerCase() === userAuth.email.toLowerCase())
+    : true;
+  const isAdminUser =
+    actorPerms.isAdmin ||
+    actorPerms.isSuperAdmin ||
+    actorPerms.isEditor ||
+    userAuth.role === 'admin' ||
+    userAuth.role === 'super_admin' ||
+    userAuth.role === 'editor' ||
+    (!!userAuth.email && userAuth.email.toLowerCase() === DESIGNATED_SUPER_ADMIN_EMAIL.toLowerCase());
+
+  if (article && !isOwner && !isAdminUser) {
+    return { success: false, error: 'Permission denied. You can only delete your own drafts.' };
+  }
+
+  // 2. Perform Firestore deletion if configured - ONLY IF verified draft
+  if (isFirebaseConfigured() && db) {
+    try {
+      if (auth?.currentUser) {
+        const docRef = doc(db, ARTICLES_COLLECTION, targetId);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const docData = docSnap.data();
+          if (docData?.status !== 'draft') {
+            recordPublishedArticleIdentity(targetId, docData?.slug);
+            return {
+              success: false,
+              error: 'Protected: Cloud document is not in draft status. Cannot be deleted via deleteDraft.',
+            };
+          }
+          await deleteDoc(docRef);
+        }
+
+        if (draftIdOrSlug !== targetId) {
+          try {
+            const altRef = doc(db, ARTICLES_COLLECTION, draftIdOrSlug);
+            const altSnap = await getDoc(altRef);
+            if (altSnap.exists() && altSnap.data()?.status === 'draft') {
+              await deleteDoc(altRef);
+            }
+          } catch {
+            // ignore secondary id error
+          }
+        }
+
+        // Secondary cleanup by slug ONLY if document status is draft
+        if (targetSlug && targetSlug !== targetId) {
+          try {
+            const slugQuery = query(
+              collection(db, ARTICLES_COLLECTION),
+              where('slug', '==', targetSlug),
+              where('status', '==', 'draft')
+            );
+            const slugSnap = await getDocs(slugQuery);
+            for (const sDoc of slugSnap.docs) {
+              await deleteDoc(sDoc.ref);
+            }
+          } catch {
+            // ignore sub-query error
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('Notice while deleting draft from Firestore:', err);
+      const isPermIssue =
+        err?.code === 'permission-denied' ||
+        (err?.message && err.message.toLowerCase().includes('permission'));
+      if (!isPermIssue) {
+        return { success: false, error: err.message || 'Failed to delete draft from cloud database.' };
+      }
+    }
+  }
+
+  // 3. Clear local recovery backups, drafts, and caches for this draft only
+  clearAllDraftBackupsForArticle(userAuth.uid, targetId, draftIdOrSlug);
+  removeLocalDraft(targetId, targetSlug);
+  removeLocalDraft(draftIdOrSlug);
+
+  // CRITICAL: ONLY tombstone targetId if it is explicitly a draft ID (e.g. draft-*)
+  if (targetId && (targetId.startsWith('draft-') || targetId.startsWith('art-draft-'))) {
+    saveLocalDeletedId(targetId);
+  }
+
+  // Remove ONLY drafts from dynamic in-memory articles; preserve published articles
+  dynamicArticlesState = dynamicArticlesState.filter((a) => {
+    const isMatch =
+      a.id === draftIdOrSlug ||
+      a.slug === draftIdOrSlug ||
+      a.id === targetId ||
+      (targetSlug && targetSlug !== targetId && a.slug === targetSlug);
+    if (isMatch && a.status !== 'draft') {
+      return true; // Keep published & review articles 100% intact!
+    }
+    return !isMatch;
+  });
+
+  // Record audit log if user info available
+  if (userAuth.email) {
+    try {
+      await logAuditEvent({
+        actorUid: userAuth.uid,
+        actorEmail: userAuth.email,
+        actorRole: userAuth.role || 'user',
+        action: 'Draft Deleted',
+        targetId: targetId,
+        targetTitle: title,
+        targetType: 'article',
+        details: `Draft "${title}" deleted by ${userAuth.email}.`,
+        metadata: { articleId: targetId, slug: targetSlug },
+      });
+    } catch (aErr) {
+      console.warn('Audit log notice on draft delete:', aErr);
+    }
+  }
+
+  return { success: true };
+}
+
+/**
  * Editorial action: Permanently deletes/removes an article from database.
  */
 export async function deleteArticle(
@@ -936,27 +1971,115 @@ export async function deleteArticle(
 ): Promise<{ success: boolean; error?: string }> {
   if (!articleId) return { success: false, error: 'Article ID required.' };
 
+  const settings = await getSystemSettings();
+  const actorPerms = await resolveActorPermissions(actor);
+  if (settings.maintenanceMode && !actorPerms.isSuperAdmin) {
+    return {
+      success: false,
+      error: 'Platform Maintenance Mode is active. Article deletion is frozen and restricted exclusively to Super Admins.',
+    };
+  }
+
   const article = await getArticleById(articleId);
   const targetId = article?.id || articleId;
   const targetSlug = article?.slug || articleId;
   const title = article?.title || articleId;
+
+  // Persist deletion tombstone
+  saveLocalDeletedId(targetId, targetSlug, articleId, cleanSlugHelper(targetSlug));
+
+  // Clear local backups and storage
+  if (actor?.uid) {
+    clearAllDraftBackupsForArticle(actor.uid, targetId, targetSlug, articleId);
+  }
+  clearAllDraftBackupsForArticle('anonymous', targetId, targetSlug, articleId);
+
+  // Remove from local persistent drafts
+  removeLocalDraft(targetId, targetSlug);
+  removeLocalDraft(articleId);
 
   // Remove from in-memory state
   dynamicArticlesState = dynamicArticlesState.filter(
     (a) => a.id !== articleId && a.slug !== articleId && a.id !== targetId && a.slug !== targetSlug
   );
 
+  let clientDeleteSucceeded = false;
+  let clientError: any = null;
+
   if (isFirebaseConfigured() && db) {
     try {
       const docRef = doc(db, ARTICLES_COLLECTION, targetId);
       await deleteDoc(docRef);
       if (articleId !== targetId) {
-        const altRef = doc(db, ARTICLES_COLLECTION, articleId);
-        await deleteDoc(altRef);
+        try {
+          const altRef = doc(db, ARTICLES_COLLECTION, articleId);
+          await deleteDoc(altRef);
+        } catch {
+          // ignore secondary id error
+        }
       }
+      if (targetSlug) {
+        try {
+          const slugQuery = query(collection(db, ARTICLES_COLLECTION), where('slug', '==', targetSlug));
+          const slugSnap = await getDocs(slugQuery);
+          for (const sDoc of slugSnap.docs) {
+            await deleteDoc(sDoc.ref);
+          }
+        } catch {
+          // Ignore sub-query error
+        }
+      }
+      clientDeleteSucceeded = true;
+
+      // Async sync with server endpoint for audit logging & secondary references
+      getAuthBearerToken().then((token) => {
+        fetch('/api/articles/delete', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ targetId, articleId, targetSlug, title, actor }),
+        }).catch(() => {});
+      });
     } catch (err: any) {
-      console.warn('Error deleting article from Firestore:', err);
+      clientError = err;
+      console.warn('Direct client delete from Firestore failed, escalating to backend server endpoint:', err);
     }
+  }
+
+  // Fallback to server endpoint if direct client delete failed or client db unconfigured
+  if (!clientDeleteSucceeded) {
+    try {
+      const token = await getAuthBearerToken();
+      const res = await fetch('/api/articles/delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          targetId,
+          articleId,
+          targetSlug,
+          title,
+          actor,
+        }),
+      });
+      if (res.ok) {
+        const resData = await res.json();
+        if (resData.success) {
+          clientDeleteSucceeded = true;
+        }
+      }
+    } catch (serverErr) {
+      console.warn('Backend API delete failed:', serverErr);
+    }
+  }
+
+  if (!clientDeleteSucceeded && clientError) {
+    console.error('Error deleting article from Firestore:', clientError);
+    return { success: false, error: clientError.message || 'Failed to delete article from database.' };
   }
 
   if (actor) {
@@ -986,7 +2109,20 @@ export async function deleteArticle(
 export async function getUserArticles(userId: string): Promise<Article[]> {
   if (!userId) return [];
 
-  const fallbackList = dynamicArticlesState.filter((a) => a.authorId === userId);
+  const localDrafts = getLocalDrafts().filter((a) => a.authorId === userId);
+  const fallbackMap = new Map<string, Article>();
+
+  for (const d of dynamicArticlesState) {
+    if (d.authorId === userId && !isArticleDeleted(d)) {
+      fallbackMap.set(d.id, applyLocalOverrides(d));
+    }
+  }
+  for (const ld of localDrafts) {
+    if (!isArticleDeleted(ld)) {
+      fallbackMap.set(ld.id, applyLocalOverrides(ld));
+    }
+  }
+  const fallbackList = Array.from(fallbackMap.values());
 
   if (!isFirebaseConfigured() || !db) {
     return fallbackList;
@@ -997,13 +2133,22 @@ export async function getUserArticles(userId: string): Promise<Article[]> {
       const articlesRef = collection(db, ARTICLES_COLLECTION);
       const q = query(articlesRef, where('authorId', '==', userId));
       const snapshot = await getDocs(q);
-      const list = snapshot.docs.map((docSnap) => normalizeArticleDoc(docSnap.id, docSnap.data()));
+      const list = snapshot.docs
+        .map((docSnap) => normalizeArticleDoc(docSnap.id, docSnap.data()))
+        .filter((a) => !isArticleDeleted(a))
+        .map((a) => {
+          if (a.status === 'published' || a.status === 'pending_review') {
+            recordPublishedArticleIdentity(a.id, a.slug);
+          }
+          return applyLocalOverrides(a);
+        });
 
-      // Merge in session dynamic articles
+      // Merge in session and local dynamic articles
       const idSet = new Set(list.map((a) => a.id));
-      for (const d of dynamicArticlesState) {
-        if (d.authorId === userId && !idSet.has(d.id)) {
-          list.push(d);
+      const slugSet = new Set(list.map((a) => (a.slug || '').toLowerCase().trim()));
+      for (const item of fallbackList) {
+        if (!idSet.has(item.id) && (!item.slug || !slugSet.has(item.slug.toLowerCase().trim()))) {
+          list.push(item);
         }
       }
 
@@ -1022,16 +2167,68 @@ export async function getUserArticles(userId: string): Promise<Article[]> {
 }
 
 /**
+ * Retrieves the current collection of published, non-deleted articles.
+ */
+export function getAvailablePublishedArticles(): Article[] {
+  // Check live dynamic state
+  const live = dynamicArticlesState
+    .filter((a) => !isArticleDeleted(a))
+    .map((a) => applyLocalOverrides(a))
+    .filter((a) => (a.status || 'published') === 'published');
+
+  if (live.length > 0) {
+    return live;
+  }
+
+  // If dynamic state is empty and Firebase is not configured, fall back to non-deleted demo articles
+  if (!isFirebaseConfigured()) {
+    return DEMO_ARTICLES
+      .filter((a) => !isArticleDeleted(a))
+      .map((a) => applyLocalOverrides(normalizeArticleDoc(a.id, { ...a, status: a.status || 'published' })))
+      .filter((a) => a.status === 'published');
+  }
+
+  return [];
+}
+
+/**
+ * Selects a random article slug from current published, non-deleted articles.
+ * Returns empty string if no eligible published articles exist.
+ */
+export function getRandomPublishedArticleSlug(): string {
+  const pool = getAvailablePublishedArticles();
+  if (pool.length === 0) return '';
+  const randomIndex = Math.floor(Math.random() * pool.length);
+  return pool[randomIndex]?.slug || pool[0]?.slug || '';
+}
+
+/**
  * Verifies if a slug is available and unique.
  */
 export async function isSlugAvailable(slug: string, currentArticleId?: string): Promise<boolean> {
   const cleanSlug = cleanSlugHelper(slug);
   if (!cleanSlug) return false;
 
+  // 1. Check local dynamic articles state
   const foundLocal = dynamicArticlesState.find(
     (a) => cleanSlugHelper(a.slug) === cleanSlug && a.id !== currentArticleId
   );
   if (foundLocal) return false;
+
+  // 2. Check local persistent drafts
+  const foundDraft = getLocalDrafts().find(
+    (a) => cleanSlugHelper(a.slug) === cleanSlug && a.id !== currentArticleId
+  );
+  if (foundDraft) return false;
+
+  // 3. Check demo/seed articles that can still be resolved by the application
+  const foundDemo = DEMO_ARTICLES.find(
+    (a) =>
+      !isArticleDeleted(a) &&
+      a.id !== currentArticleId &&
+      (cleanSlugHelper(a.slug) === cleanSlug || cleanSlugHelper(a.id) === cleanSlug)
+  );
+  if (foundDemo) return false;
 
   if (!isFirebaseConfigured() || !db) {
     return true;

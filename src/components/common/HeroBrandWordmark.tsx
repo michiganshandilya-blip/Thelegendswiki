@@ -1,4 +1,5 @@
 import React, { memo } from 'react';
+import { TheLegendsWikiLogo } from './TheLegendsWikiLogo';
 
 /**
  * High-performance, lightweight decorative falling autumn leaves
@@ -199,10 +200,15 @@ export const HeroBrandWordmark: React.FC = memo(() => {
         {/* Decorative Falling Leaves in Restrained Autumn Tones */}
         <FallingLeaves />
 
-        {/* Content Container: Primary Calligraphy Wordmark + Understated Subtitle */}
-        <div className="relative z-10 flex flex-col items-center sm:items-start">
-          {/* Main Hand-Painted Black Brush-Calligraphy Wordmark */}
-          <div className="relative py-1 w-full max-w-lg">
+        {/* Content Container: Official Logo + Primary Calligraphy Wordmark + Understated Subtitle */}
+        <div className="relative z-10 flex flex-col sm:flex-row items-center sm:items-start gap-4">
+          <TheLegendsWikiLogo
+            size="hero"
+            className="rounded-sm shadow-md border border-[#d6c7ae] bg-[#fbf9f4] p-1 shrink-0"
+          />
+          <div className="flex flex-col items-center sm:items-start flex-1 min-w-0">
+            {/* Main Hand-Painted Black Brush-Calligraphy Wordmark */}
+            <div className="relative py-1 w-full max-w-lg">
             <svg
               viewBox="0 0 540 100"
               className="w-full h-auto max-h-24 sm:max-h-28 object-contain filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.12)]"
@@ -272,6 +278,7 @@ export const HeroBrandWordmark: React.FC = memo(() => {
         </div>
       </div>
     </div>
+  </div>
   );
 });
 

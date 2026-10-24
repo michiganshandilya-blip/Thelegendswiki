@@ -1,0 +1,273 @@
+import { InvestigationRecord, EvidenceItem, ClaimItem } from '../types';
+
+export const INITIAL_EVIDENCE: EvidenceItem[] = [
+  // 1. Harshad Mehta Evidence
+  {
+    id: 'evi-hm-001',
+    investigationId: 'inv-harshad-mehta-1992',
+    title: 'Bank Receipt (BR) Duplicate Stubs - Bank of Karad',
+    source: 'Reserve Bank of India (RBI) Janakiraman Committee Report',
+    sourceUrl: 'https://rbi.org.in/scripts/BS_PressReleaseDisplay.aspx',
+    repository: 'RBI Archival Records & Joint Parliamentary Committee (JPC) Exhibit #14',
+    dateCollected: '1992-05-14',
+    evidenceType: 'primary_document',
+    verificationStatus: 'verified',
+    confidenceScore: 98,
+    custodyChain: 'RBI Special Audit Wing -> CBI Special Crimes Branch -> JPC Records Room',
+    description: 'Original book records and stub receipts demonstrating that Bank of Karad issued unsecured Bank Receipts without holding underlying Government of India dated securities in its vault.',
+    rawExcerpt: 'The Janakiraman Committee observed that Bank of Karad and Metropolitan Co-operative Bank issued BRs against non-existent securities amounting to over ₹1,470 crores, credited directly to broker accounts.',
+    verifiedBy: 'Senior Forensic Investigator',
+    verifiedAt: '2026-08-10',
+    supportingClaimIds: ['claim-hm-001', 'claim-hm-002'],
+    authorId: 'usr-admin-01',
+    authorName: 'Financial Forensics Division',
+    createdAt: '2026-08-01T10:00:00Z',
+    updatedAt: '2026-08-10T14:30:00Z'
+  },
+  {
+    id: 'evi-hm-002',
+    investigationId: 'inv-harshad-mehta-1992',
+    title: 'State Bank of India Securities Ledger Reconciliation Discrepancy Note',
+    source: 'SBI Vigilance Department Internal Memo 1992/04',
+    sourceUrl: '',
+    repository: 'National Archives of India / Special Court (TORTS) Mumbai',
+    dateCollected: '1992-04-23',
+    evidenceType: 'forensic_record',
+    verificationStatus: 'verified',
+    confidenceScore: 96,
+    custodyChain: 'SBI Treasury Desk -> Deputy Managing Director Office -> CBI',
+    description: 'Internal treasury reconciliation log identifying an unaccounted deficit of ₹622 crore in the subsidiary general ledger (SGL) account.',
+    rawExcerpt: 'Reconciliation of SGL balance notes a discrepancy between reported securities held by broker Harshad Mehta and the depository balance at Public Debt Office.',
+    verifiedBy: 'Editorial Board Lead',
+    verifiedAt: '2026-08-11',
+    supportingClaimIds: ['claim-hm-001'],
+    authorId: 'usr-admin-01',
+    authorName: 'Financial Forensics Division',
+    createdAt: '2026-08-01T10:30:00Z',
+    updatedAt: '2026-08-11T16:00:00Z'
+  },
+  {
+    id: 'evi-hm-003',
+    investigationId: 'inv-harshad-mehta-1992',
+    title: 'Political Cash Delivery Allegation Press Conference Transcript',
+    source: 'Press Council of India / National Press Bureau Archive',
+    sourceUrl: '',
+    repository: 'Press Trust Archive 1993-06-16',
+    dateCollected: '1993-06-16',
+    evidenceType: 'eyewitness_testimony',
+    verificationStatus: 'disputed',
+    confidenceScore: 42,
+    custodyChain: 'Direct broker press disclosure, uncorroborated by independent bank transfer traces',
+    description: 'Press conference testimony alleging ₹1 crore cash payment in suitcases. CBI investigation found lack of corroborating physical evidence or official visitor registry entry matching the timeline.',
+    rawExcerpt: 'Harshad Mehta publicly claimed delivery of cash suitcases to political figures on November 4, 1991. Official security logs showed PM was attending official meetings at South Block.',
+    verifiedBy: 'Senior Forensic Investigator',
+    verifiedAt: '2026-08-12',
+    supportingClaimIds: ['claim-hm-003'],
+    authorId: 'usr-admin-01',
+    authorName: 'Financial Forensics Division',
+    createdAt: '2026-08-01T11:00:00Z',
+    updatedAt: '2026-08-12T09:15:00Z'
+  },
+
+  // 2. Enron Evidence
+  {
+    id: 'evi-enron-001',
+    investigationId: 'inv-enron-scandal',
+    title: 'Special Purpose Entity (SPE) Chewco & LJM Partnership Filing Agreements',
+    source: 'US Securities and Exchange Commission (SEC) Enforcement Division',
+    sourceUrl: 'https://www.sec.gov/news/press/2002-149.htm',
+    repository: 'SEC Archive Edgar File #0001024401',
+    dateCollected: '2001-11-08',
+    evidenceType: 'primary_document',
+    verificationStatus: 'verified',
+    confidenceScore: 99,
+    custodyChain: 'SEC Subpoena records -> US Department of Justice Enron Task Force',
+    description: 'Legal filings confirming off-balance-sheet vehicles were managed by Enron CFO Andrew Fastow in direct conflict of interest, concealing over $1 billion in liabilities.',
+    rawExcerpt: 'The Chewco and LJM transactions failed to meet FASB 3% independent equity requirements, necessitating retroactive consolidation and restatement of $586 million in losses.',
+    verifiedBy: 'Editorial Board Lead',
+    verifiedAt: '2026-08-14',
+    supportingClaimIds: ['claim-enron-001', 'claim-enron-002'],
+    authorId: 'usr-admin-01',
+    authorName: 'Corporate Forensic Archive',
+    createdAt: '2026-08-02T08:00:00Z',
+    updatedAt: '2026-08-14T11:00:00Z'
+  },
+  {
+    id: 'evi-enron-002',
+    investigationId: 'inv-enron-scandal',
+    title: 'Sherron Watkins Whistleblower Memo to Chairman Kenneth Lay',
+    source: 'US House Committee on Energy and Commerce Hearing Records',
+    sourceUrl: '',
+    repository: 'US Congressional Archives House Doc 107-152',
+    dateCollected: '2001-08-15',
+    evidenceType: 'primary_document',
+    verificationStatus: 'verified',
+    confidenceScore: 100,
+    custodyChain: 'Direct internal memo handed to Kenneth Lay -> Congressional Subpoena',
+    description: 'Internal memorandum warning that Enron was bound to "implode in a wave of accounting scandals" due to aggressive mark-to-market valuations and SPE hedges.',
+    rawExcerpt: 'I am incredibly nervous that we will implode in a wave of accounting scandals. The business world must be wondering how we keep making money without positive cash flow.',
+    verifiedBy: 'Senior Forensic Investigator',
+    verifiedAt: '2026-08-14',
+    supportingClaimIds: ['claim-enron-001'],
+    authorId: 'usr-admin-01',
+    authorName: 'Corporate Forensic Archive',
+    createdAt: '2026-08-02T08:30:00Z',
+    updatedAt: '2026-08-14T11:30:00Z'
+  }
+];
+
+export const INITIAL_CLAIMS: ClaimItem[] = [
+  // Harshad Mehta Claims
+  {
+    id: 'claim-hm-001',
+    investigationId: 'inv-harshad-mehta-1992',
+    subject: 'Mechanics of Fund Siphoning',
+    statement: 'Fake Bank Receipts from Bank of Karad and Metropolitan Co-op Bank were used as collateral to obtain cash liquidity for equity market pumping.',
+    status: 'confirmed',
+    epistemicRationale: 'Confirmed by RBI Janakiraman Committee exhibits, SGL reconciliations, and CBI forensic bank account logs.',
+    linkedEvidenceIds: ['evi-hm-001', 'evi-hm-002'],
+    confidenceScore: 98,
+    verifiedBy: 'Senior Forensic Investigator',
+    verifiedAt: '2026-08-10',
+    authorId: 'usr-admin-01',
+    createdAt: '2026-08-01T10:00:00Z',
+    updatedAt: '2026-08-10T14:30:00Z'
+  },
+  {
+    id: 'claim-hm-002',
+    investigationId: 'inv-harshad-mehta-1992',
+    subject: 'Institutional Collusion & Custody Failures',
+    statement: 'Multiple commercial and foreign bank treasury desks engaged in non-contractual Ready-Forward transactions bypassing statutory reserve guidelines.',
+    status: 'confirmed',
+    epistemicRationale: 'Documented in Joint Parliamentary Committee (JPC) final report findings across 14 commercial and foreign banking institutions.',
+    linkedEvidenceIds: ['evi-hm-001'],
+    confidenceScore: 95,
+    verifiedBy: 'Editorial Board Lead',
+    verifiedAt: '2026-08-11',
+    authorId: 'usr-admin-01',
+    createdAt: '2026-08-01T10:15:00Z',
+    updatedAt: '2026-08-11T15:00:00Z'
+  },
+  {
+    id: 'claim-hm-003',
+    investigationId: 'inv-harshad-mehta-1992',
+    subject: 'Direct Executive Payoffs',
+    statement: 'Direct cash bribery of high-ranking political executives was systematically executed via courier suitcases on November 4, 1991.',
+    status: 'disputed',
+    epistemicRationale: 'Unverified testimonial claim contradicted by official alibi security logs and absence of traceable banking withdrawals on stated dates.',
+    linkedEvidenceIds: ['evi-hm-003'],
+    confidenceScore: 35,
+    verifiedBy: 'Senior Forensic Investigator',
+    verifiedAt: '2026-08-12',
+    authorId: 'usr-admin-01',
+    createdAt: '2026-08-01T11:00:00Z',
+    updatedAt: '2026-08-12T09:15:00Z'
+  },
+
+  // Enron Claims
+  {
+    id: 'claim-enron-001',
+    investigationId: 'inv-enron-scandal',
+    subject: 'Off-Balance-Sheet Deception',
+    statement: 'Executive leadership utilized Special Purpose Entities to conceal mounting trading losses and inflate operating cash flows.',
+    status: 'confirmed',
+    epistemicRationale: 'Directly proven by SEC enforcement documents, Arthur Andersen trial exhibits, and Sherron Watkins internal warnings.',
+    linkedEvidenceIds: ['evi-enron-001', 'evi-enron-002'],
+    confidenceScore: 99,
+    verifiedBy: 'Senior Forensic Investigator',
+    verifiedAt: '2026-08-14',
+    authorId: 'usr-admin-01',
+    createdAt: '2026-08-02T08:00:00Z',
+    updatedAt: '2026-08-14T11:00:00Z'
+  },
+  {
+    id: 'claim-enron-002',
+    investigationId: 'inv-enron-scandal',
+    subject: 'Auditor Complicity & Document Shredding',
+    statement: 'Arthur Andersen auditors systematically destroyed tons of accounting audit workpapers upon receiving notice of SEC inquiries.',
+    status: 'confirmed',
+    epistemicRationale: 'Established by Houston federal grand jury testimony, internal emails from in-house counsel Nancy Temple, and SEC findings.',
+    linkedEvidenceIds: ['evi-enron-001'],
+    confidenceScore: 97,
+    verifiedBy: 'Editorial Board Lead',
+    verifiedAt: '2026-08-14',
+    authorId: 'usr-admin-01',
+    createdAt: '2026-08-02T08:15:00Z',
+    updatedAt: '2026-08-14T11:20:00Z'
+  }
+];
+
+export const INITIAL_INVESTIGATIONS: InvestigationRecord[] = [
+  {
+    id: 'inv-harshad-mehta-1992',
+    title: 'The 1992 Securities Scam: Ready-Forward Loophole & Counterparty Bank Receipts',
+    slug: 'harshad-mehta-1992-securities-scam',
+    subject: '1992 Indian Securities Market & Banking System Siphoning',
+    summary: 'A multi-phase forensic investigation into the systematic issuance of fraudulent Bank Receipts (BRs) and inter-bank Ready-Forward market manipulation that funneled ₹4,000+ crore into the Bombay Stock Exchange.',
+    status: 'published',
+    leadOrigin: 'Times of India investigative expose by Sucheta Dalal (April 23, 1992) regarding SBI treasury discrepancies.',
+    articleId: 'art-harshad-mehta-1992',
+    articleSlug: 'harshad-mehta-1992-securities-scam',
+    hypotheses: [
+      {
+        id: 'hyp-hm-1',
+        statement: 'Small cooperative banks issued unsecured Bank Receipts without holding underlying collateral securities.',
+        status: 'validated',
+        notes: 'Confirmed by RBI Janakiraman Committee and CBI forensic filings.'
+      },
+      {
+        id: 'hyp-hm-2',
+        statement: 'Brokers maintained informal personal credit accounts with public sector bank treasury managers.',
+        status: 'validated',
+        notes: 'Corroborated by Joint Parliamentary Committee inquiry hearings.'
+      }
+    ],
+    claims: INITIAL_CLAIMS.filter(c => c.investigationId === 'inv-harshad-mehta-1992'),
+    evidence: INITIAL_EVIDENCE.filter(e => e.investigationId === 'inv-harshad-mehta-1992'),
+    evidenceCount: 3,
+    leadInvestigator: 'Financial Forensics Division',
+    leadInvestigatorId: 'usr-admin-01',
+    collaborators: ['Editorial Board Lead', 'Senior Forensic Investigator'],
+    findings: 'The investigation confirms that the 1992 securities crisis was enabled by the lack of automated real-time settlement systems (pre-NDS/CCIL), allowing paper Bank Receipts to circulate as credit instruments.',
+    methodology: 'Triangulation of RBI committee reports, CBI charge sheets, SGL ledger balance registries, and contemporaneous press investigations.',
+    reviewedBy: 'Editorial Board Lead',
+    reviewedById: 'usr-admin-01',
+    reviewedAt: '2026-08-15T12:00:00Z',
+    isPublished: true,
+    createdAt: '2026-08-01T09:00:00Z',
+    updatedAt: '2026-08-15T12:00:00Z'
+  },
+  {
+    id: 'inv-enron-scandal',
+    title: 'Enron Corporation: Forensic Analysis of Special Purpose Entities & Mark-to-Market Accounting',
+    slug: 'enron-scandal-and-arthur-andersen',
+    subject: 'Corporate Fraud, SPE Off-Balance-Sheet Vehicles, and Audit Failure',
+    summary: 'Forensic audit and document declassification analyzing how mark-to-market forward contract accounting and structured Special Purpose Entities (Chewco, LJM, Raptor) were engineered to hide $1B+ in liabilities.',
+    status: 'published',
+    leadOrigin: 'Sherron Watkins whistleblower disclosure and Bethany McLean Fortune article "Is Enron Overpriced?" (March 2001).',
+    articleId: 'art-enron-scandal',
+    articleSlug: 'enron-scandal-and-arthur-andersen',
+    hypotheses: [
+      {
+        id: 'hyp-enron-1',
+        statement: 'SPE partnerships were used to purchase falling Enron assets using Enron stock as collateral.',
+        status: 'validated',
+        notes: 'Validated by SEC Powers Committee Report.'
+      }
+    ],
+    claims: INITIAL_CLAIMS.filter(c => c.investigationId === 'inv-enron-scandal'),
+    evidence: INITIAL_EVIDENCE.filter(e => e.investigationId === 'inv-enron-scandal'),
+    evidenceCount: 2,
+    leadInvestigator: 'Corporate Forensic Archive',
+    leadInvestigatorId: 'usr-admin-01',
+    collaborators: ['Senior Forensic Investigator'],
+    findings: 'Enron created a circular hedging mechanism where the entity hedging Enron losses was capitalized with Enron common stock, causing catastrophic collateral calls when share prices declined.',
+    methodology: 'Analysis of SEC filings, Powers Report depositions, Arthur Andersen court exhibits, and internal whistleblower records.',
+    reviewedBy: 'Editorial Board Lead',
+    reviewedById: 'usr-admin-01',
+    reviewedAt: '2026-08-16T14:00:00Z',
+    isPublished: true,
+    createdAt: '2026-08-02T07:30:00Z',
+    updatedAt: '2026-08-16T14:00:00Z'
+  }
+];

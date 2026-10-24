@@ -1,11 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from '../context/RouterContext';
 import { useAuth } from '../context/AuthContext';
 import { Article, ArticleSection, ArticleCitation, ArticleInfobox, ArticleStatus } from '../types';
-import { getArticleBySlugOrId, updateArticle } from '../services/articleService';
+import { getArticleBySlugOrId, updateArticle, deleteDraft } from '../services/articleService';
 import { createRevision } from '../services/revisionService';
-import { validateArticle, validateImageAlt } from '../lib/validation';
+import { validateArticle, validateImageAlt, generateSlugFromTitle } from '../lib/validation';
 import { mapToStandardDossierSections } from '../lib/dossierStructure';
+import { useSystemSettings } from '../hooks/useSystemSettings';
+import { DESIGNATED_SUPER_ADMIN_EMAIL } from '../services/userService';
+import {
+  saveLocalDraftBackup,
+  getLocalDraftBackup,
+  clearLocalDraftBackup,
+  clearAllDraftBackupsForArticle,
+  hasMeaningfulDraftContent,
+  recordPublishedArticleIdentity,
+} from '../lib/draftStorage';
 import { Breadcrumbs } from '../components/common/Breadcrumbs';
 import { EditorMetadata } from '../components/editor/EditorMetadata';
 import { EditorSectionList } from '../components/editor/EditorSectionList';
@@ -14,6 +24,7 @@ import { EditorReferences } from '../components/editor/EditorReferences';
 import { EditorPreviewModal } from '../components/editor/EditorPreviewModal';
 import { UnsavedChangesDialog } from '../components/editor/UnsavedChangesDialog';
 import { AiWritingToolsModal } from '../components/editor/AiWritingToolsModal';
+import { EditorVersionHistory } from '../components/editor/EditorVersionHistory';
 import {
   Save,
   Send,
@@ -21,6 +32,7 @@ import {
   CheckCircle,
   AlertCircle,
   Clock,
+  History,
   ShieldAlert,
   FileEdit,
   ArrowLeft,
@@ -28,6 +40,9 @@ import {
   XCircle,
   MessageSquare,
   Sparkles,
+  RefreshCw,
+  RotateCcw,
+  Trash2,
 } from 'lucide-react';
 
 interface EditArticlePageProps {
@@ -37,6 +52,13 @@ interface EditArticlePageProps {
 export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
   const { navigate } = useRouter();
   const { user, profile, isEditor, isAdmin, isAuthenticated, loading: authLoading } = useAuth();
+  const { settings: systemSettings } = useSystemSettings();
+
+  const isSuperAdmin =
+    (user?.email || '').toLowerCase() === DESIGNATED_SUPER_ADMIN_EMAIL.toLowerCase() ||
+    profile?.role === 'super_admin';
+  const isPlatformMaintenance = systemSettings.maintenanceMode && !isSuperAdmin;
+  const isPublicSubmissionsPaused = !systemSettings.allowPublicSubmissions && !isEditor && !isSuperAdmin;
 
   const [initialLoading, setInitialLoading] = useState<boolean>(true);
   const [articleId, setArticleId] = useState<string>('');
@@ -54,6 +76,7 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
   const [category, setCategory] = useState<string>('History & Civilizations');
   const [categorySlug, setCategorySlug] = useState<string>('history');
   const [subCategory, setSubCategory] = useState<string | undefined>(undefined);
+  const [region, setRegion] = useState<string>('Global');
   const [tags, setTags] = useState<string[]>([]);
   const [featuredImage, setFeaturedImage] = useState<string>('');
   const [imageCaption, setImageCaption] = useState<string>('');
@@ -73,6 +96,7 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
+  const [restoredNotice, setRestoredNotice] = useState<string | null>(null);
   const [successNotice, setSuccessNotice] = useState<{ message: string; actionSlug?: string } | null>(null);
   const [permissionDenied, setPermissionDenied] = useState<boolean>(false);
   const [notFound, setNotFound] = useState<boolean>(false);
@@ -82,6 +106,17 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
   const [isDirty, setIsDirty] = useState<boolean>(false);
   const [showExitDialog, setShowExitDialog] = useState<boolean>(false);
   const [pendingExitUrl, setPendingExitUrl] = useState<string | null>(null);
+  const [showDeleteDraftModal, setShowDeleteDraftModal] = useState<boolean>(false);
+  const [deletingDraft, setDeletingDraft] = useState<boolean>(false);
+
+  const initialUrlTab = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null;
+  const [activeEditorTab, setActiveEditorTab] = useState<'content' | 'history'>(
+    initialUrlTab === 'history' || initialUrlTab === 'versions' ? 'history' : 'content'
+  );
+
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isSavingRef = useRef<boolean>(false);
+  const currentUserId = user?.uid || profile?.id || 'anonymous';
 
   // Load article
   useEffect(() => {
@@ -106,8 +141,8 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
         }
 
         // Permission check: must be author OR editor/admin
-        const currentUserId = user?.uid || profile?.id;
-        const isAuthor = currentUserId && art.authorId === currentUserId;
+        const uid = user?.uid || profile?.id;
+        const isAuthor = uid && art.authorId === uid;
         if (!isAuthor && !isEditor && !isAdmin) {
           setPermissionDenied(true);
           return;
@@ -116,7 +151,7 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
         // Populate fields
         setArticleId(art.id);
         setExistingStatus(art.status || 'draft');
-        setAuthorId(art.authorId || currentUserId || '');
+        setAuthorId(art.authorId || uid || '');
         setAuthorName(art.author || 'Author');
         setModerationNotes(art.moderationNotes);
         setReviewedBy(art.reviewedBy);
@@ -127,6 +162,7 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
         setCategory(art.category || 'General');
         setCategorySlug(art.categorySlug || 'general');
         setSubCategory(art.subCategory || undefined);
+        setRegion(art.region || 'Global');
         setTags(art.tags || []);
         setFeaturedImage(art.featuredImage || art.image || '');
         setImageCaption(art.imageCaption || '');
@@ -138,6 +174,42 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
         setInfobox(art.infobox || undefined);
         setCitations(art.citations || art.references || []);
         setSections(mapToStandardDossierSections(art.sections, art.content));
+
+        // Check for local recovery backup (newer unsaved changes)
+        const localBackup =
+          getLocalDraftBackup(currentUserId, slug) ||
+          getLocalDraftBackup(currentUserId, art.id);
+        if (localBackup && localBackup.data && hasMeaningfulDraftContent(localBackup.data)) {
+          const remoteTime = art.updatedAt ? new Date(art.updatedAt).getTime() : 0;
+          if (localBackup.savedAt > remoteTime + 2000) {
+            // Local backup has newer changes! Restore them seamlessly
+            const d = localBackup.data;
+            if (d.title !== undefined) setTitle(d.title);
+            if (d.summary !== undefined) setSummary(d.summary);
+            if (d.articleType !== undefined) setArticleType(d.articleType);
+            if (d.category !== undefined) setCategory(d.category);
+            if (d.categorySlug !== undefined) setCategorySlug(d.categorySlug);
+            if (d.subCategory !== undefined) setSubCategory(d.subCategory);
+            if (d.region !== undefined) setRegion(d.region);
+            if (d.tags !== undefined) setTags(d.tags);
+            if (d.featuredImage !== undefined) setFeaturedImage(d.featuredImage);
+            if (d.imageCaption !== undefined) setImageCaption(d.imageCaption);
+            if (d.imageCredit !== undefined) setImageCredit(d.imageCredit);
+            if (d.imageAlt !== undefined) setImageAlt(d.imageAlt);
+            if (d.isSensitive !== undefined) setIsSensitive(d.isSensitive);
+            if (d.contentSensitivity !== undefined) setContentSensitivity(d.contentSensitivity);
+            if (d.sensitivityRationale !== undefined) setSensitivityRationale(d.sensitivityRationale);
+            if (d.infobox !== undefined) setInfobox(d.infobox);
+            if (d.citations !== undefined) setCitations(d.citations);
+            if (d.sections && d.sections.length > 0) setSections(d.sections);
+
+            const savedDate = new Date(localBackup.savedAt);
+            const timeStr = savedDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            setLastSavedTime(timeStr);
+            setSaveStatus('saved');
+            setRestoredNotice(`Auto-recovered your recent working changes from ${timeStr}.`);
+          }
+        }
       } catch (err) {
         console.error('Error loading article for edit:', err);
         if (isMounted) setNotFound(true);
@@ -150,7 +222,7 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
     return () => {
       isMounted = false;
     };
-  }, [slug, user?.uid, profile?.id, isEditor, isAdmin, isAuthenticated, authLoading]);
+  }, [slug, user?.uid, profile?.id, isEditor, isAdmin, isAuthenticated, authLoading, currentUserId]);
 
   // Warn on tab close if dirty
   useEffect(() => {
@@ -164,64 +236,196 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isDirty]);
 
-  const markDirty = () => {
-    if (!isDirty) setIsDirty(true);
-    setSaveStatus('unsaved');
-  };
+  const buildArticlePayload = useCallback(
+    (targetStatus: ArticleStatus): Partial<Article> => {
+      const readingTime = Math.max(
+        2,
+        Math.ceil(
+          (summary.length +
+            sections.reduce(
+              (acc, s) =>
+                acc +
+                (s.content || []).join(' ').length +
+                (s.bulletPoints || []).join(' ').length,
+              0
+            )) / 1000
+        )
+      );
 
-  const buildArticlePayload = (targetStatus: ArticleStatus): Partial<Article> => {
-    const readingTime = Math.max(
-      2,
-      Math.ceil(
-        (summary.length + sections.reduce((acc, s) => acc + (s.content || []).join(' ').length, 0)) / 1000
-      )
-    );
+      const cleanTitle = title.trim();
+      const cleanSlug =
+        articleSlug.trim() ||
+        generateSlugFromTitle(cleanTitle) ||
+        (articleId ? articleId.replace(/^art-/, '') : articleId) ||
+        `entry-${Date.now()}`;
 
-    return {
-      title: title.trim(),
-      slug: articleSlug.trim(),
-      summary: summary.trim(),
-      articleType: articleType as any,
-      content: sections.map((s) => (s.content || []).join('\n\n')).join('\n\n'),
-      featuredImage: featuredImage.trim() || undefined,
-      image: featuredImage.trim() || undefined,
-      imageCaption: imageCaption.trim() || undefined,
-      imageCredit: imageCredit.trim() || undefined,
-      imageAlt: imageAlt.trim() || undefined,
-      infobox: infobox || undefined,
+      return {
+        title: cleanTitle,
+        slug: cleanSlug,
+        summary: summary.trim(),
+        articleType: articleType as any,
+        content: sections.map((s) => (s.content || []).join('\n\n')).join('\n\n'),
+        featuredImage: featuredImage.trim() || undefined,
+        image: featuredImage.trim() || undefined,
+        imageCaption: imageCaption.trim() || undefined,
+        imageCredit: imageCredit.trim() || undefined,
+        imageAlt: imageAlt.trim() || undefined,
+        infobox: infobox || undefined,
+        sections,
+        references: citations,
+        citations,
+        categories: [categorySlug],
+        category,
+        categorySlug,
+        subCategory: subCategory || undefined,
+        region: region || 'Global',
+        tags,
+        authorId: authorId || user?.uid || profile?.id,
+        author: authorName || profile?.displayName || user?.displayName || 'Contributor',
+        updatedAt: new Date().toISOString(),
+        lastUpdated: new Date().toLocaleDateString('en-US', {
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+        }),
+        status: targetStatus,
+        isSensitive: Boolean(isSensitive || contentSensitivity === 'sensitive'),
+        contentSensitivity: isSensitive || contentSensitivity === 'sensitive' ? 'sensitive' : 'normal',
+        sensitivityRationale: sensitivityRationale.trim() || undefined,
+        readingTimeMinutes: readingTime,
+      };
+    },
+    [
+      title,
+      articleSlug,
+      summary,
+      articleType,
       sections,
-      references: citations,
+      featuredImage,
+      imageCaption,
+      imageCredit,
+      imageAlt,
+      infobox,
       citations,
-      categories: [categorySlug],
-      category,
       categorySlug,
-      subCategory: subCategory || undefined,
+      category,
+      subCategory,
+      region,
       tags,
-      authorId: authorId || user?.uid || profile?.id,
-      author: authorName || profile?.displayName || user?.displayName || 'Contributor',
-      updatedAt: new Date().toISOString(),
-      lastUpdated: new Date().toLocaleDateString('en-US', {
-        month: 'long',
-        day: 'numeric',
-        year: 'numeric',
-      }),
-      status: targetStatus,
-      isSensitive: Boolean(isSensitive || contentSensitivity === 'sensitive'),
-      contentSensitivity: isSensitive || contentSensitivity === 'sensitive' ? 'sensitive' : 'normal',
-      sensitivityRationale: sensitivityRationale.trim() || undefined,
-      readingTimeMinutes: readingTime,
-    };
+      authorId,
+      user?.uid,
+      profile?.id,
+      profile?.displayName,
+      user?.displayName,
+      authorName,
+      isSensitive,
+      contentSensitivity,
+      sensitivityRationale,
+    ]
+  );
+
+  // Background auto-save while editing
+  const executeAutoSave = useCallback(async () => {
+    if (isSavingRef.current || !articleId) return;
+    const payload = buildArticlePayload(existingStatus);
+
+    if (!hasMeaningfulDraftContent(payload)) return;
+
+    // Immediately persist to local storage
+    saveLocalDraftBackup(currentUserId, slug, payload, articleId);
+    saveLocalDraftBackup(currentUserId, articleId, payload, articleId);
+
+    isSavingRef.current = true;
+    setSaveStatus('saving');
+
+    try {
+      const actorInfo = { uid: user?.uid || profile?.id, email: user?.email || undefined, role: profile?.role };
+      const updateRes = await updateArticle(articleId, payload, actorInfo);
+      if (updateRes.success) {
+        saveLocalDraftBackup(currentUserId, slug, payload, articleId);
+        saveLocalDraftBackup(currentUserId, articleId, payload, articleId);
+      }
+      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setLastSavedTime(now);
+      setSaveStatus('saved');
+      setIsDirty(false);
+    } catch (err) {
+      console.warn('Auto-save notice (local copy preserved):', err);
+      setSaveStatus('saved');
+    } finally {
+      isSavingRef.current = false;
+    }
+  }, [articleId, buildArticlePayload, existingStatus, currentUserId, slug]);
+
+  const markDirty = () => {
+    setIsDirty(true);
+    setSaveStatus('unsaved');
+
+    // Instant local backup
+    const currentPayload = buildArticlePayload(existingStatus);
+    saveLocalDraftBackup(currentUserId, slug, currentPayload, articleId);
+    if (articleId) {
+      saveLocalDraftBackup(currentUserId, articleId, currentPayload, articleId);
+    }
+
+    // Debounce cloud auto-save by ~1.5s
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+    autoSaveTimerRef.current = setTimeout(() => {
+      executeAutoSave();
+    }, 1500);
   };
+
+  const handleRestoreSnapshot = (snapshot: Partial<Article>, revisionNote: string) => {
+    markDirty();
+    if (snapshot.title !== undefined) setTitle(snapshot.title);
+    if (snapshot.slug !== undefined) setArticleSlug(snapshot.slug);
+    if (snapshot.summary !== undefined) setSummary(snapshot.summary);
+    if (snapshot.articleType !== undefined) setArticleType(snapshot.articleType);
+    if (snapshot.category !== undefined) setCategory(snapshot.category);
+    if (snapshot.categorySlug !== undefined) setCategorySlug(snapshot.categorySlug);
+    if (snapshot.subCategory !== undefined) setSubCategory(snapshot.subCategory);
+    if (snapshot.region !== undefined) setRegion(snapshot.region);
+    if (snapshot.tags !== undefined) setTags(snapshot.tags);
+    if (snapshot.featuredImage !== undefined) setFeaturedImage(snapshot.featuredImage);
+    if (snapshot.imageCaption !== undefined) setImageCaption(snapshot.imageCaption);
+    if (snapshot.imageCredit !== undefined) setImageCredit(snapshot.imageCredit);
+    if (snapshot.imageAlt !== undefined) setImageAlt(snapshot.imageAlt);
+    if (snapshot.isSensitive !== undefined) setIsSensitive(snapshot.isSensitive);
+    if (snapshot.contentSensitivity !== undefined) setContentSensitivity(snapshot.contentSensitivity);
+    if (snapshot.sensitivityRationale !== undefined) setSensitivityRationale(snapshot.sensitivityRationale);
+    if (snapshot.infobox !== undefined) setInfobox(snapshot.infobox);
+    if (snapshot.citations !== undefined) setCitations(snapshot.citations);
+    if (snapshot.sections && snapshot.sections.length > 0) setSections(snapshot.sections);
+
+    setRestoredNotice(`Successfully loaded historical snapshot into editor: ${revisionNote}`);
+    setActiveEditorTab('content');
+  };
+
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleUpdate = async (targetStatus: ArticleStatus) => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
     setGeneralError(null);
     setValidationErrors({});
     setSaving(true);
     setSaveStatus('saving');
 
-    const payload = buildArticlePayload(targetStatus);
+    const effectiveTargetStatus: ArticleStatus = targetStatus;
 
-    if (targetStatus === 'pending_review' || targetStatus === 'published') {
+    const payload = buildArticlePayload(effectiveTargetStatus);
+
+    if (effectiveTargetStatus === 'pending_review' || effectiveTargetStatus === 'published') {
       const validation = validateArticle(payload as any);
       if (!validation.isValid) {
         setValidationErrors(validation.errors);
@@ -231,48 +435,39 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
         return;
       }
 
-      // Check hero image alt text if image exists
-      if (featuredImage) {
-        const altCheck = validateImageAlt(imageAlt);
-        if (!altCheck.isValid) {
-          setValidationErrors((prev) => ({
-            ...prev,
-            imageAlt: altCheck.message || 'Descriptive alt text is required for the main image.',
-          }));
-          setGeneralError(altCheck.message || 'Please provide descriptive alt text for your main image.');
-          setSaving(false);
-          setSaveStatus('unsaved');
-          return;
-        }
+      // Ensure imageAlt is populated with sensible default if missing
+      if (payload.featuredImage && (!payload.imageAlt || payload.imageAlt.trim().length === 0)) {
+        payload.imageAlt = payload.title ? `Illustration for ${payload.title}` : 'Article illustration';
       }
 
-      // Check section figures alt text
+      // Check section figures for alt text; auto-default if missing
       for (let i = 0; i < sections.length; i++) {
         const fig = sections[i].figure;
-        if (fig && fig.url) {
-          const figAlt = validateImageAlt(fig.alt);
-          if (!figAlt.isValid) {
-            setGeneralError(`Section ${i + 1} (${sections[i].title}) figure requires descriptive alternative text.`);
-            setSaving(false);
-            setSaveStatus('unsaved');
-            return;
-          }
+        if (fig && fig.url && (!fig.alt || fig.alt.trim().length === 0)) {
+          fig.alt = `Figure illustration for section ${sections[i].title}`;
         }
       }
     }
 
     try {
-      await updateArticle(articleId, payload);
+      const actorInfo = { uid: user?.uid || profile?.id, email: user?.email || undefined, role: profile?.role };
+      const updateRes = await updateArticle(articleId, payload, actorInfo);
+      if (!updateRes.success) {
+        const errorMsg =
+          updateRes.error ||
+          (updateRes.errors ? Object.values(updateRes.errors).join(', ') : 'Failed to update article draft.');
+        throw new Error(errorMsg);
+      }
 
       // Record revision entry in audit history
-      const currentUserId = user?.uid || profile?.id || 'editor';
-      const currentUserName = profile?.displayName || user?.displayName || profile?.username || 'Editor';
+      const uid = user?.uid || profile?.id || 'editor';
+      const uname = profile?.displayName || user?.displayName || profile?.username || 'Editor';
 
       const changeSummary =
         changeSummaryText.trim() ||
-        (targetStatus === 'pending_review'
+        (effectiveTargetStatus === 'pending_review'
           ? 'Submitted updated version with citations & figures for review'
-          : targetStatus === 'published'
+          : effectiveTargetStatus === 'published'
           ? 'Published revised content and media assets'
           : 'Updated article draft');
 
@@ -280,32 +475,53 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
         articleId,
         articleSlug: payload.slug || articleSlug,
         articleTitle: title,
-        editorId: currentUserId,
-        editorName: currentUserName,
+        editorId: uid,
+        editorName: uname,
         changeSummary,
         previousContent: '',
         newContent: typeof payload.content === 'string' ? payload.content : '',
         actionType:
-          targetStatus === 'published'
+          effectiveTargetStatus === 'published'
             ? 'approval'
-            : targetStatus === 'pending_review'
+            : effectiveTargetStatus === 'pending_review'
             ? 'submission'
             : 'draft_saved',
+        snapshot: payload,
+        versionNumber:
+          effectiveTargetStatus === 'published'
+            ? `v1.${Date.now().toString().slice(-2)} (Live Revision)`
+            : effectiveTargetStatus === 'pending_review'
+            ? 'v1.x (Submitted for Review)'
+            : 'Draft Snapshot',
         createdAt: new Date().toISOString(),
       });
 
-      setExistingStatus(targetStatus);
+      setExistingStatus(effectiveTargetStatus);
       const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       setLastSavedTime(now);
       setSaveStatus('saved');
       setIsDirty(false);
 
-      if (targetStatus === 'published') {
+      if (effectiveTargetStatus === 'published' || effectiveTargetStatus === 'pending_review') {
+        recordPublishedArticleIdentity(articleId, slug, payload.slug);
+        clearLocalDraftBackup(currentUserId, slug);
+        clearLocalDraftBackup(currentUserId, articleId);
+        clearAllDraftBackupsForArticle(currentUserId, articleId, slug, 'new');
+      } else {
+        saveLocalDraftBackup(currentUserId, slug, payload, articleId);
+        saveLocalDraftBackup(currentUserId, articleId, payload, articleId);
+      }
+
+      if (effectiveTargetStatus === 'published') {
+        const publishedSlug =
+          payload.slug ||
+          articleSlug ||
+          (articleId ? articleId.replace(/^art-/, '') : articleId);
         setSuccessNotice({
           message: 'Changes saved and published live to the encyclopedia!',
-          actionSlug: payload.slug || articleSlug,
+          actionSlug: publishedSlug,
         });
-      } else if (targetStatus === 'pending_review') {
+      } else if (effectiveTargetStatus === 'pending_review') {
         setSuccessNotice({
           message: 'Changes submitted successfully for editorial moderation review.',
         });
@@ -320,6 +536,43 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
       setSaveStatus('unsaved');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Handle delete draft from active editor
+  const handleConfirmDeleteDraft = async () => {
+    if (!articleId && !slug) return;
+    if (existingStatus !== 'draft') {
+      setGeneralError('Protected: Only drafts can be deleted. Published or submitted articles must remain intact in the encyclopedia.');
+      setShowDeleteDraftModal(false);
+      return;
+    }
+    try {
+      setDeletingDraft(true);
+      setGeneralError(null);
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+      const targetDraftId = articleId || slug;
+      const res = await deleteDraft(targetDraftId, {
+        uid: currentUserId,
+        email: user?.email || undefined,
+        role: profile?.role || 'user',
+      });
+      if (res.success) {
+        setIsDirty(false);
+        setShowDeleteDraftModal(false);
+        navigate('/my-articles');
+      } else {
+        setGeneralError(res.error || 'Failed to delete draft from database.');
+        setShowDeleteDraftModal(false);
+      }
+    } catch (err: any) {
+      console.error('Error deleting draft in editor:', err);
+      setGeneralError(err.message || 'Error deleting draft.');
+      setShowDeleteDraftModal(false);
+    } finally {
+      setDeletingDraft(false);
     }
   };
 
@@ -427,8 +680,100 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
             <Eye size={14} className="text-[#3366cc]" />
             <span>Preview Draft</span>
           </button>
+
+          {/* Version History Quick Toggle Button */}
+          <button
+            type="button"
+            onClick={() => setActiveEditorTab(activeEditorTab === 'history' ? 'content' : 'history')}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-xs font-semibold font-mono cursor-pointer transition-all shadow-xs ${
+              activeEditorTab === 'history'
+                ? 'bg-blue-50 text-[#3366cc] border border-[#3366cc]'
+                : 'bg-[#ffffff] hover:bg-[#eaecf0] text-[#101418] border border-[#a2a9b1]'
+            }`}
+            title="Inspect historical revisions and earlier snapshots"
+          >
+            <History size={14} className="text-[#3366cc]" />
+            <span>Version History</span>
+          </button>
+
+          {/* Delete Draft Button (available for drafts) */}
+          {existingStatus === 'draft' && (
+            <button
+              type="button"
+              onClick={() => setShowDeleteDraftModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-sm text-xs font-semibold font-mono cursor-pointer transition-all shadow-xs"
+              title="Delete Draft"
+            >
+              <Trash2 size={13} />
+              <span>Delete Draft</span>
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Editor Navigation Tabs */}
+      <div className="flex items-center gap-1 border-b border-[#a2a9b1] bg-[#ffffff] px-2 pt-2 shadow-xs">
+        <button
+          type="button"
+          onClick={() => setActiveEditorTab('content')}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold font-mono transition-colors border-b-2 cursor-pointer ${
+            activeEditorTab === 'content'
+              ? 'border-[#3366cc] text-[#3366cc] bg-[#f8f9fa]'
+              : 'border-transparent text-[#54595d] hover:text-[#101418] hover:bg-[#f8f9fa]'
+          }`}
+        >
+          <FileEdit size={14} />
+          <span>Article Content</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveEditorTab('history')}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold font-mono transition-colors border-b-2 cursor-pointer ${
+            activeEditorTab === 'history'
+              ? 'border-[#3366cc] text-[#3366cc] bg-[#f8f9fa]'
+              : 'border-transparent text-[#54595d] hover:text-[#101418] hover:bg-[#f8f9fa]'
+          }`}
+        >
+          <History size={14} />
+          <span>Version History</span>
+          {existingStatus === 'published' && (
+            <span className="px-1.5 py-0.5 rounded-xs bg-emerald-100 text-emerald-800 text-[10px] font-mono font-semibold">
+              Published Record
+            </span>
+          )}
+        </button>
+      </div>
+
+      {activeEditorTab === 'history' ? (
+        <EditorVersionHistory
+          articleId={articleId}
+          articleSlug={articleSlug || slug}
+          articleTitle={title}
+          currentStatus={existingStatus}
+          currentArticle={buildArticlePayload(existingStatus)}
+          onRestoreSnapshot={handleRestoreSnapshot}
+          onSwitchToEditor={() => setActiveEditorTab('content')}
+          isEditor={isEditor}
+        />
+      ) : (
+        <>
+          {/* Auto-Restored Notice Banner */}
+      {restoredNotice && (
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-sm text-blue-900 text-xs sm:text-sm flex items-center justify-between gap-2 shadow-xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle size={16} className="text-[#3366cc] shrink-0" />
+            <span>{restoredNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRestoredNotice(null)}
+            className="px-2 py-0.5 text-xs text-[#54595d] hover:text-[#101418] cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Moderation Notes if changes requested */}
       {existingStatus === 'changes_requested' && moderationNotes && (
@@ -438,6 +783,35 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
             <span>Editorial Board Revision Request Notes:</span>
           </div>
           <p className="leading-relaxed pl-6 italic">"{moderationNotes}"</p>
+        </div>
+      )}
+
+      {/* System Policy Banners */}
+      {isPlatformMaintenance && (
+        <div className="p-4 bg-amber-50 border border-amber-300 rounded-sm text-amber-900 text-xs sm:text-sm flex items-start gap-3 shadow-xs">
+          <AlertTriangle size={18} className="text-amber-700 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="font-bold font-mono text-amber-950 uppercase tracking-wide">
+              Platform Maintenance Mode Active
+            </div>
+            <p className="text-xs text-amber-800 leading-relaxed">
+              Article modifications are temporarily locked for maintenance. Only designated Super Administrators can save or publish changes at this time.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {isPublicSubmissionsPaused && (
+        <div className="p-4 bg-blue-50 border border-blue-200 rounded-sm text-blue-900 text-xs sm:text-sm flex items-start gap-3 shadow-xs">
+          <AlertCircle size={18} className="text-blue-600 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="font-bold font-mono text-blue-950 uppercase tracking-wide">
+              Public Submissions Currently Paused
+            </div>
+            <p className="text-xs text-blue-800 leading-relaxed">
+              Public article updates are paused by system administrators. Only credentialed Editorial Board members may submit revisions.
+            </p>
+          </div>
         </div>
       )}
 
@@ -505,6 +879,7 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
           category={category}
           categorySlug={categorySlug}
           subCategory={subCategory}
+          region={region}
           tags={tags}
           featuredImage={featuredImage}
           imageCaption={imageCaption}
@@ -523,6 +898,7 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
             if (fields.category !== undefined) setCategory(fields.category);
             if (fields.categorySlug !== undefined) setCategorySlug(fields.categorySlug);
             if (fields.subCategory !== undefined) setSubCategory(fields.subCategory);
+            if (fields.region !== undefined) setRegion(fields.region);
             if (fields.tags !== undefined) setTags(fields.tags);
             if (fields.featuredImage !== undefined) setFeaturedImage(fields.featuredImage);
             if (fields.imageCaption !== undefined) setImageCaption(fields.imageCaption);
@@ -587,23 +963,37 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Delete Draft Button (for drafts) */}
+          {existingStatus === 'draft' && (
+            <button
+              type="button"
+              onClick={() => setShowDeleteDraftModal(true)}
+              disabled={saving || deletingDraft}
+              className="px-3.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-sm text-xs font-semibold font-mono cursor-pointer transition-colors flex items-center gap-1.5"
+              title="Delete Draft"
+            >
+              <Trash2 size={13} />
+              <span>Delete Draft</span>
+            </button>
+          )}
+
           {/* Save Draft */}
           <button
             type="button"
             onClick={() => handleUpdate('draft')}
-            disabled={saving}
-            className="px-3.5 py-1.5 bg-[#ffffff] hover:bg-[#eaecf0] text-[#101418] border border-[#a2a9b1] rounded-sm text-xs font-semibold font-mono cursor-pointer transition-colors"
+            disabled={saving || deletingDraft || isPlatformMaintenance}
+            className="px-3.5 py-1.5 bg-[#ffffff] hover:bg-[#eaecf0] disabled:opacity-50 disabled:cursor-not-allowed text-[#101418] border border-[#a2a9b1] rounded-sm text-xs font-semibold font-mono cursor-pointer transition-colors"
           >
             Save Draft
           </button>
 
           {/* Submit for Review or Direct Publish */}
-          {isEditor ? (
+          {isEditor && (!systemSettings.requirePeerReview || isSuperAdmin) ? (
             <button
               type="button"
               onClick={() => handleUpdate('published')}
-              disabled={saving || !title.trim() || !summary.trim()}
-              className="px-4 py-1.5 bg-[#3366cc] hover:bg-[#2557bb] disabled:opacity-40 text-white rounded-sm text-xs font-semibold font-mono cursor-pointer shadow-xs transition-colors flex items-center gap-1.5"
+              disabled={saving || deletingDraft || isPlatformMaintenance || !title.trim() || !summary.trim()}
+              className="px-4 py-1.5 bg-[#3366cc] hover:bg-[#2557bb] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-sm text-xs font-semibold font-mono cursor-pointer shadow-xs transition-colors flex items-center gap-1.5"
             >
               <Send size={13} />
               <span>{existingStatus === 'published' ? 'Publish Revision Live' : 'Approve & Publish Live'}</span>
@@ -612,15 +1002,60 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
             <button
               type="button"
               onClick={() => handleUpdate('pending_review')}
-              disabled={saving || !title.trim() || !summary.trim()}
-              className="px-4 py-1.5 bg-[#3366cc] hover:bg-[#2557bb] disabled:opacity-40 text-white rounded-sm text-xs font-semibold font-mono cursor-pointer shadow-xs transition-colors flex items-center gap-1.5"
+              disabled={saving || deletingDraft || isPlatformMaintenance || isPublicSubmissionsPaused || !title.trim() || !summary.trim()}
+              className="px-4 py-1.5 bg-[#3366cc] hover:bg-[#2557bb] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-sm text-xs font-semibold font-mono cursor-pointer shadow-xs transition-colors flex items-center gap-1.5"
             >
               <Send size={13} />
-              <span>Submit for Review</span>
+              <span>{systemSettings.requirePeerReview && isEditor ? 'Submit for Peer Review' : 'Submit for Review'}</span>
             </button>
           )}
         </div>
       </div>
+        </>
+      )}
+
+      {/* Delete Draft Confirmation Modal */}
+      {showDeleteDraftModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="bg-[#ffffff] border border-[#a2a9b1] rounded-sm max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-red-700">
+              <div className="p-2 bg-red-100 rounded-full">
+                <Trash2 size={20} />
+              </div>
+              <h3 className="font-serif font-bold text-base text-[#101418]">
+                Delete Draft
+              </h3>
+            </div>
+
+            <p className="text-xs text-[#54595d] leading-relaxed">
+              Delete this draft? This action cannot be undone.
+            </p>
+
+            <div className="bg-[#f8f9fa] border border-[#eaecf0] p-2.5 rounded-sm text-xs font-serif text-[#101418] font-bold">
+              "{title || slug || 'Untitled Draft'}"
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-[#eaecf0]">
+              <button
+                type="button"
+                onClick={() => setShowDeleteDraftModal(false)}
+                disabled={deletingDraft}
+                className="px-3.5 py-1.5 bg-white border border-[#a2a9b1] hover:bg-[#eaecf0] text-[#101418] rounded-sm text-xs font-semibold font-mono cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingDraft}
+                onClick={handleConfirmDeleteDraft}
+                className="px-4 py-1.5 bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white rounded-sm text-xs font-semibold font-mono shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                {deletingDraft ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Preview Modal */}
       <EditorPreviewModal

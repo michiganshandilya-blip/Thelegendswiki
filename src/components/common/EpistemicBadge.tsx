@@ -11,6 +11,7 @@ export type ExtendedEpistemicDepth =
 
 interface EpistemicBadgeProps {
   depth?: ExtendedEpistemicDepth | string;
+  level?: ExtendedEpistemicDepth | string;
   size?: 'xs' | 'sm' | 'md' | 'lg';
   showTooltip?: boolean;
   showDot?: boolean;
@@ -156,27 +157,29 @@ export const EPISTEMIC_DEFINITIONS: Record<string, DefinitionConfig> = {
 
 export const EpistemicBadge: React.FC<EpistemicBadgeProps> = ({
   depth,
+  level,
   size = 'sm',
   showTooltip = true,
   showDot = false,
   dark = false,
   className = '',
 }) => {
-  if (!depth) return null;
+  const activeDepth = depth || level;
+  if (!activeDepth) return null;
 
-  const normalizedKey = (depth in EPISTEMIC_DEFINITIONS)
-    ? depth
-    : depth.toLowerCase().includes('fact') || depth.toLowerCase().includes('confirm')
+  const normalizedKey = (activeDepth in EPISTEMIC_DEFINITIONS)
+    ? activeDepth
+    : activeDepth.toLowerCase().includes('fact') || activeDepth.toLowerCase().includes('confirm')
     ? 'Documented Fact'
-    : depth.toLowerCase().includes('dispute')
+    : activeDepth.toLowerCase().includes('dispute')
     ? 'Disputed'
-    : depth.toLowerCase().includes('alleg') || depth.toLowerCase().includes('claim')
+    : activeDepth.toLowerCase().includes('alleg') || activeDepth.toLowerCase().includes('claim')
     ? 'Claim'
-    : depth.toLowerCase().includes('conspiracy')
+    : activeDepth.toLowerCase().includes('conspiracy')
     ? 'Conspiracy Theory'
-    : depth.toLowerCase().includes('theor')
+    : activeDepth.toLowerCase().includes('theor')
     ? 'Theory'
-    : depth.toLowerCase().includes('evidence')
+    : activeDepth.toLowerCase().includes('evidence')
     ? 'Evidence'
     : 'Unknown';
 

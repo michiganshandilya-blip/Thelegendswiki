@@ -9,6 +9,7 @@ import { CategoryCard } from '../components/common/CategoryCard';
 import { CategoryHeader } from '../components/category/CategoryHeader';
 import { CategoryNotFound } from '../components/category/CategoryNotFound';
 import { EmptyState } from '../components/common/EmptyState';
+import { LoadingState } from '../components/common/LoadingState';
 import { Button } from '../components/common/Button';
 import { 
   Grid, 
@@ -44,7 +45,7 @@ export const CategoryPage: React.FC<CategoryPageProps> = ({ slug }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>('all');
 
-  const { context: resolved } = useResolvedCategory(slug, { curtainsOnly: true });
+  const { context: resolved, loading } = useResolvedCategory(slug, { curtainsOnly: true });
   const { categories: allCategoriesList } = useCategories();
 
   const isAllDossiers = slug === 'all' || slug === 'behind-the-curtains' || slug === 'curtains';
@@ -78,26 +79,20 @@ export const CategoryPage: React.FC<CategoryPageProps> = ({ slug }) => {
           description: 'The requested Behind-the-Curtains facet could not be found.',
           noindex: true,
         },
-    [slug, categoryName, resolved?.articles.length]
+    [slug, categoryName, resolved?.articles?.length]
   );
 
-  // If slug is invalid
-  if (!resolved) {
-    return <CategoryNotFound slug={slug} />;
-  }
+  const articles = resolved?.articles || [];
+  const category = resolved?.category;
+  const subcategory = resolved?.subcategory;
+  const parentCategory = resolved?.parentCategory;
+  const isSubcategory = resolved?.isSubcategory;
+  const popularArticles = resolved?.popularArticles || [];
+  const recentArticles = resolved?.recentArticles || [];
 
-  const {
-    category,
-    subcategory,
-    parentCategory,
-    isSubcategory,
-    articles,
-    popularArticles,
-    recentArticles,
-  } = resolved;
-
-  // Filter and sort articles
+  // Filter and sort articles (unconditional Hook)
   const processedArticles = useMemo(() => {
+    if (!articles.length) return [];
     let result = [...articles];
 
     // Subcategory filter if active
@@ -132,14 +127,7 @@ export const CategoryPage: React.FC<CategoryPageProps> = ({ slug }) => {
     return result;
   }, [articles, filterQuery, sortBy, selectedSubcategory]);
 
-  // Pagination calculations
-  const totalPages = Math.max(1, Math.ceil(processedArticles.length / ITEMS_PER_PAGE));
-  const paginatedArticles = processedArticles.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
-  );
-
-  // Dynamic breadcrumbs
+  // Dynamic breadcrumbs (unconditional Hook)
   const breadcrumbItems = useMemo(() => {
     if (isAllDossiers) {
       return [{ label: 'Behind the Curtains' }, { label: 'All Dossiers' }];
@@ -160,9 +148,25 @@ export const CategoryPage: React.FC<CategoryPageProps> = ({ slug }) => {
     return [{ label: 'Investigation' }];
   }, [isAllDossiers, isSubcategory, parentCategory, subcategory, category]);
 
+  // Pagination calculations
+  const totalPages = Math.max(1, Math.ceil(processedArticles.length / ITEMS_PER_PAGE));
+  const paginatedArticles = processedArticles.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
   const availableSubcategories = isSubcategory
     ? parentCategory?.subcategories
     : category?.subcategories;
+
+  if (loading && !resolved) {
+    return <LoadingState type="category" />;
+  }
+
+  // If slug is invalid
+  if (!resolved) {
+    return <CategoryNotFound slug={slug} />;
+  }
 
   return (
     <div id="category-page" className="space-y-6 pb-10">

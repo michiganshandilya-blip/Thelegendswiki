@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useRouter } from '../context/RouterContext';
 import { Button } from '../components/common/Button';
 import { Breadcrumbs } from '../components/common/Breadcrumbs';
+import { TheLegendsWikiLogo } from '../components/common/TheLegendsWikiLogo';
 import { SocialAuthProviders } from '../components/auth/SocialAuthProviders';
 import { TurnstileWidget } from '../components/common/TurnstileWidget';
 import { verifyTurnstileTokenOnServer } from '../services/turnstileService';
@@ -18,6 +19,7 @@ import {
   CheckCircle2,
   ShieldCheck,
   ArrowLeft,
+  LogIn,
 } from 'lucide-react';
 import { isUsernameAvailable } from '../services/userService';
 
@@ -33,10 +35,14 @@ export const SignupPage: React.FC = () => {
 
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const isSubmittingRef = useRef<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isProviderDisabled, setIsProviderDisabled] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string>('');
+  const turnstileTokenRef = useRef<string>('');
+  const consumedTokensRef = useRef<Set<string>>(new Set());
   const [turnstileResetKey, setTurnstileResetKey] = useState<number>(0);
+  const [acceptedTerms, setAcceptedTerms] = useState<boolean>(false);
 
   const [usernameStatus, setUsernameStatus] = useState<{
     checking?: boolean;
@@ -50,6 +56,7 @@ export const SignupPage: React.FC = () => {
     email?: string;
     password?: string;
     confirmPassword?: string;
+    terms?: string;
   }>({});
 
   // If already authenticated
@@ -122,6 +129,7 @@ export const SignupPage: React.FC = () => {
       email?: string;
       password?: string;
       confirmPassword?: string;
+      terms?: string;
     } = {};
 
     if (!displayName.trim() || displayName.trim().length < 2) {
@@ -153,35 +161,58 @@ export const SignupPage: React.FC = () => {
       errors.confirmPassword = 'Passwords do not match.';
     }
 
+    if (!acceptedTerms) {
+      errors.terms = 'You must accept the Terms of Use, Privacy Policy, and Legal Disclaimer to register.';
+    }
+
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMessage(null);
-    setIsProviderDisabled(false);
-
-    if (!validate()) return;
-
-    if (!turnstileToken) {
-      setErrorMessage('Please complete the security verification challenge.');
+    if (isSubmittingRef.current || loading) {
+      console.warn('[Registration Flow] Double submission prevented.');
       return;
     }
 
+    setErrorMessage(null);
+    setIsProviderDisabled(false);
+
+    if (!validate()) {
+      console.warn('[Registration Flow] Form validation stopped submission.');
+      return;
+    }
+
+    const tokenToVerify = (turnstileTokenRef.current || turnstileToken || '').trim();
+    if (!tokenToVerify || consumedTokensRef.current.has(tokenToVerify)) {
+      setErrorMessage('Please complete the security verification challenge.');
+      setTurnstileToken('');
+      turnstileTokenRef.current = '';
+      setTurnstileResetKey((prev) => prev + 1);
+      return;
+    }
+
+    // Immediately clear stored token and mark as consumed to prevent any reuse
+    consumedTokensRef.current.add(tokenToVerify);
+    setTurnstileToken('');
+    turnstileTokenRef.current = '';
+
+    isSubmittingRef.current = true;
     setLoading(true);
+
     try {
-      // 1. Validate Turnstile token server-side
-      const verifyResult = await verifyTurnstileTokenOnServer(turnstileToken, 'signup');
+      console.log('[Registration Flow] Step 1: Validating Turnstile token server-side...');
+      const verifyResult = await verifyTurnstileTokenOnServer(tokenToVerify, 'signup');
       if (!verifyResult.success) {
+        console.warn('[Registration Flow] Turnstile verification failed:', verifyResult.error);
         setErrorMessage(verifyResult.error || 'Security verification failed. Please try again.');
-        setTurnstileToken('');
+        // Require a fresh challenge
         setTurnstileResetKey((prev) => prev + 1);
-        setLoading(false);
         return;
       }
 
-      // 2. Proceed with existing Firebase registration
+      console.log('[Registration Flow] Step 2: Turnstile passed. Creating Firebase Auth user & profile...');
       const result = await signup(
         displayName.trim(),
         username.trim().toLowerCase(),
@@ -190,20 +221,41 @@ export const SignupPage: React.FC = () => {
       );
 
       if (!result.success) {
+        const isExpectedAuthWarning =
+          result.error?.toLowerCase().includes('already registered') ||
+          result.error?.toLowerCase().includes('already claimed') ||
+          result.error?.toLowerCase().includes('weak-password') ||
+          result.error?.toLowerCase().includes('invalid-email');
+
+        if (isExpectedAuthWarning) {
+          console.warn('[Registration Flow] Registration notice:', result.error);
+        } else {
+          console.error('[Registration Flow] Registration failed with error:', result.error);
+        }
+
         setErrorMessage(result.error || 'Failed to create account.');
-        setTurnstileToken('');
+        if (result.error?.toLowerCase().includes('already registered')) {
+          setFieldErrors((prev) => ({
+            ...prev,
+            email: 'This email address is already registered in TheLegendsWiki.',
+          }));
+        }
+
+        // Token has been consumed for this attempt. Require a fresh challenge for retry:
         setTurnstileResetKey((prev) => prev + 1);
         if (result.isProviderDisabled) {
           setIsProviderDisabled(true);
         }
       } else {
+        console.log('[Registration Flow] Step 3: Registration successful. Navigating to home.');
         navigate('/');
       }
     } catch (err: any) {
+      console.error('[Registration Flow] Unexpected registration exception:', err);
       setErrorMessage(err?.message || 'An unexpected error occurred during registration.');
-      setTurnstileToken('');
       setTurnstileResetKey((prev) => prev + 1);
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };
@@ -215,9 +267,7 @@ export const SignupPage: React.FC = () => {
       <div className="bg-[#ffffff] border border-[#a2a9b1] rounded-sm p-6 sm:p-8 shadow-xs relative">
         {/* Card Header */}
         <div className="flex items-center gap-3.5 border-b border-[#eaecf0] pb-4 mb-6">
-          <div className="w-9 h-9 rounded-sm bg-[#3366cc] text-white flex items-center justify-center font-bold text-sm">
-            <UserPlus size={18} />
-          </div>
+          <TheLegendsWikiLogo size="lg" className="rounded-sm border border-slate-200 bg-[#f8f9fa] p-0.5 shadow-xs shrink-0" />
           <div>
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#3366cc] bg-blue-50 px-2 py-0.5 rounded-sm border border-blue-200">
@@ -247,13 +297,42 @@ export const SignupPage: React.FC = () => {
         )}
 
         {/* Error Alert */}
-        {errorMessage && !isProviderDisabled && (
+        {errorMessage && (
           <div
             role="alert"
-            className="mb-6 p-3.5 bg-red-50 border border-red-200 rounded-sm text-xs text-red-700 flex items-start gap-2.5"
+            className="mb-6 p-4 bg-red-50 border border-red-200 rounded-sm text-xs text-red-700 space-y-3"
           >
-            <AlertCircle size={16} className="text-red-600 shrink-0 mt-0.5" />
-            <div className="flex-1 leading-relaxed">{errorMessage}</div>
+            <div className="flex items-start gap-2.5">
+              <AlertCircle size={16} className="text-red-600 shrink-0 mt-0.5" />
+              <div className="flex-1 leading-relaxed font-medium">{errorMessage}</div>
+            </div>
+            {errorMessage.toLowerCase().includes('already registered') && (
+              <div className="pt-2 border-t border-red-200/60 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate(
+                      `/login${email.trim() ? `?email=${encodeURIComponent(email.trim())}` : ''}`
+                    )
+                  }
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#3366cc] text-white font-semibold rounded-sm hover:bg-[#2855aa] transition-colors text-xs cursor-pointer shadow-xs"
+                >
+                  <LogIn size={13} />
+                  <span>Log In to Existing Account</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate(
+                      `/forgot-password${email.trim() ? `?email=${encodeURIComponent(email.trim())}` : ''}`
+                    )
+                  }
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-[#54595d] hover:text-[#101418] hover:underline cursor-pointer"
+                >
+                  <span>Forgot password?</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -497,15 +576,75 @@ export const SignupPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Legal Terms & Privacy Policy Explicit Acknowledgement */}
+          <div className="pt-1">
+            <label className="flex items-start gap-2.5 cursor-pointer text-xs text-[#54595d] select-none">
+              <input
+                type="checkbox"
+                id="signup-terms-checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => {
+                  setAcceptedTerms(e.target.checked);
+                  if (fieldErrors.terms) {
+                    setFieldErrors((prev) => ({ ...prev, terms: undefined }));
+                  }
+                }}
+                className="mt-0.5 h-4 w-4 rounded border-[#a2a9b1] text-[#3366cc] focus:ring-[#3366cc]"
+              />
+              <span className="leading-relaxed">
+                I have read and agree to the{' '}
+                <button
+                  type="button"
+                  onClick={() => navigate('/terms')}
+                  className="text-[#3366cc] underline hover:text-[#2557bb] font-semibold cursor-pointer"
+                >
+                  Terms of Use
+                </button>
+                ,{' '}
+                <button
+                  type="button"
+                  onClick={() => navigate('/privacy-policy')}
+                  className="text-[#3366cc] underline hover:text-[#2557bb] font-semibold cursor-pointer"
+                >
+                  Privacy Policy
+                </button>
+                , and{' '}
+                <button
+                  type="button"
+                  onClick={() => navigate('/disclaimer')}
+                  className="text-[#3366cc] underline hover:text-[#2557bb] font-semibold cursor-pointer"
+                >
+                  Legal Disclaimer
+                </button>
+                . <span className="text-red-500">*</span>
+              </span>
+            </label>
+            {fieldErrors.terms && (
+              <p className="text-[11px] text-red-600 mt-1 font-medium pl-6.5">
+                {fieldErrors.terms}
+              </p>
+            )}
+          </div>
+
           {/* Cloudflare Turnstile Security Verification */}
           <TurnstileWidget
             action="signup"
             onVerify={(token) => {
-              setTurnstileToken(token);
-              setErrorMessage(null);
+              const clean = (token || '').trim();
+              if (clean && !consumedTokensRef.current.has(clean)) {
+                setTurnstileToken(clean);
+                turnstileTokenRef.current = clean;
+                setErrorMessage(null);
+              }
             }}
-            onExpire={() => setTurnstileToken('')}
-            onError={() => setTurnstileToken('')}
+            onExpire={() => {
+              setTurnstileToken('');
+              turnstileTokenRef.current = '';
+            }}
+            onError={() => {
+              setTurnstileToken('');
+              turnstileTokenRef.current = '';
+            }}
             resetKey={turnstileResetKey}
             disabled={loading}
           />

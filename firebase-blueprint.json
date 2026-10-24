@@ -355,6 +355,119 @@
         }
       },
       "required": ["id", "articleId", "reporterId", "reason", "description", "status"]
+    },
+    "NewsletterSubscriber": {
+      "title": "NewsletterSubscriber",
+      "description": "User email subscription for periodic updates and declassified dispatches",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "unsubscribed"]
+        },
+        "source": {
+          "type": "string"
+        },
+        "subscribedAt": {
+          "type": "string"
+        },
+        "unsubscribedAt": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "email", "status"]
+    },
+    "NewsletterCampaign": {
+      "title": "NewsletterCampaign",
+      "description": "Super Admin dispatched newsletter campaigns and delivery tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "subject": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "previewText": { "type": "string" },
+        "articleUrl": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "recipientCount": { "type": "number" },
+        "sentCount": { "type": "number" },
+        "failedCount": { "type": "number" },
+        "status": {
+          "type": "string",
+          "enum": ["draft", "sending", "completed", "partially_failed", "failed"]
+        }
+      },
+      "required": ["id", "subject", "title", "content", "status"]
+    },
+    "Evidence": {
+      "title": "Evidence",
+      "description": "Primary document, forensic artifact, or corroborated record linked to claims and investigations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "investigationId": { "type": "string" },
+        "title": { "type": "string", "minLength": 3, "maxLength": 200 },
+        "source": { "type": "string", "minLength": 2, "maxLength": 200 },
+        "sourceUrl": { "type": "string" },
+        "repository": { "type": "string" },
+        "dateCollected": { "type": "string" },
+        "evidenceType": {
+          "type": "string",
+          "enum": ["primary_document", "forensic_record", "eyewitness_testimony", "academic_peer_reviewed", "investigative_journalism", "official_depository", "public_disclosure", "hearsay_unverified"]
+        },
+        "verificationStatus": {
+          "type": "string",
+          "enum": ["verified", "corroborated", "under_review", "disputed", "debunked", "unverified"]
+        },
+        "confidenceScore": { "type": "number" },
+        "custodyChain": { "type": "string" },
+        "description": { "type": "string" },
+        "rawExcerpt": { "type": "string" },
+        "verifiedBy": { "type": "string" },
+        "verifiedAt": { "type": "string" },
+        "supportingClaimIds": { "type": "array", "items": { "type": "string" } },
+        "authorId": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "source", "evidenceType", "verificationStatus", "authorId"]
+    },
+    "Investigation": {
+      "title": "Investigation",
+      "description": "Structured investigation dossier containing leads, evidence chain, and verified claims",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string", "minLength": 3, "maxLength": 250 },
+        "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "subject": { "type": "string", "minLength": 2, "maxLength": 200 },
+        "summary": { "type": "string", "minLength": 10, "maxLength": 2500 },
+        "status": {
+          "type": "string",
+          "enum": ["lead", "evidence_gathering", "claims_analysis", "verification", "in_review", "completed", "published", "archived"]
+        },
+        "leadOrigin": { "type": "string" },
+        "articleId": { "type": "string" },
+        "articleSlug": { "type": "string" },
+        "leadInvestigator": { "type": "string" },
+        "leadInvestigatorId": { "type": "string" },
+        "findings": { "type": "string" },
+        "methodology": { "type": "string" },
+        "reviewedBy": { "type": "string" },
+        "reviewedById": { "type": "string" },
+        "reviewedAt": { "type": "string" },
+        "isPublished": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "slug", "subject", "summary", "status", "leadInvestigatorId"]
     }
   },
   "firestore": {
@@ -389,6 +502,22 @@
     "/reports/{reportId}": {
       "schema": { "$ref": "#/entities/Report" },
       "description": "Moderation and content violation reports"
+    },
+    "/newsletter_subscribers/{subscriberId}": {
+      "schema": { "$ref": "#/entities/NewsletterSubscriber" },
+      "description": "Newsletter subscriber emails and dispatch preferences"
+    },
+    "/newsletter_campaigns/{campaignId}": {
+      "schema": { "$ref": "#/entities/NewsletterCampaign" },
+      "description": "Super admin newsletter campaigns and delivery records"
+    },
+    "/investigations/{investigationId}": {
+      "schema": { "$ref": "#/entities/Investigation" },
+      "description": "Investigation dossiers tracking leads, evidence collection, and claims verification"
+    },
+    "/evidence/{evidenceId}": {
+      "schema": { "$ref": "#/entities/Evidence" },
+      "description": "Primary sources, forensic records, and verified artifacts linked to claims"
     }
   }
 }

@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useRouter } from '../context/RouterContext';
 import { Button } from '../components/common/Button';
 import { Breadcrumbs } from '../components/common/Breadcrumbs';
+import { TheLegendsWikiLogo } from '../components/common/TheLegendsWikiLogo';
 import { SocialAuthProviders } from '../components/auth/SocialAuthProviders';
 import { TurnstileWidget } from '../components/common/TurnstileWidget';
 import { verifyTurnstileTokenOnServer } from '../services/turnstileService';
@@ -21,7 +22,8 @@ export const LoginPage: React.FC = () => {
   const { login, isAuthenticated, currentUser, userProfile } = useAuth();
   const { navigate } = useRouter();
 
-  const [email, setEmail] = useState('');
+  const urlParams = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+  const [email, setEmail] = useState(() => urlParams.get('email') || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -33,8 +35,15 @@ export const LoginPage: React.FC = () => {
   const [turnstileToken, setTurnstileToken] = useState<string>('');
   const [turnstileResetKey, setTurnstileResetKey] = useState<number>(0);
 
-  const urlParams = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
   const resetSuccess = urlParams.get('reset') === 'success';
+
+  // Synchronize email state if URL changes
+  React.useEffect(() => {
+    const qEmail = new URLSearchParams(window.location.search).get('email');
+    if (qEmail && !email) {
+      setEmail(qEmail);
+    }
+  }, [email]);
 
   // If already authenticated, show status
   if (isAuthenticated && currentUser) {
@@ -158,9 +167,7 @@ export const LoginPage: React.FC = () => {
       <div className="bg-[#ffffff] border border-[#a2a9b1] rounded-sm p-6 sm:p-8 shadow-xs relative">
         {/* Card Header */}
         <div className="flex items-center gap-3.5 border-b border-[#eaecf0] pb-4 mb-6">
-          <div className="w-9 h-9 rounded-sm bg-[#3366cc] text-white flex items-center justify-center font-bold text-sm">
-            <LogIn size={18} />
-          </div>
+          <TheLegendsWikiLogo size="lg" className="rounded-sm border border-slate-200 bg-[#f8f9fa] p-0.5 shadow-xs shrink-0" />
           <div>
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#3366cc] bg-blue-50 px-2 py-0.5 rounded-sm border border-blue-200">

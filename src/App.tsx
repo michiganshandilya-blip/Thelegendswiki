@@ -22,11 +22,15 @@ import { AdminPage } from './pages/AdminPage';
 import { SuperAdminPage } from './pages/SuperAdminPage';
 import { StaticPages } from './pages/StaticPages';
 import { SitemapPage } from './pages/SitemapPage';
+import { SeriesPage } from './pages/SeriesPage';
 import { EmptyState } from './components/common/EmptyState';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { AiFloatingButton } from './components/ai/AiFloatingButton';
 import { AiAssistantModal } from './components/ai/AiAssistantModal';
 import { MeteorShowerBackground } from './components/common/MeteorShowerBackground';
+import { ConsentProvider } from './context/ConsentContext';
+import { CookieConsentBanner } from './components/common/CookieConsentBanner';
+import { CookiePreferencesModal } from './components/common/CookiePreferencesModal';
 
 const MainContent: React.FC = () => {
   const { currentRoute } = useRouter();
@@ -107,6 +111,9 @@ const MainContent: React.FC = () => {
       case 'sitemap':
         return <SitemapPage />;
 
+      case 'series':
+        return <SeriesPage slug={currentRoute.slug} />;
+
       case 'create':
         return (
           <ProtectedRoute fallbackTitle="Authoring Workspace Restricted">
@@ -165,6 +172,12 @@ const MainContent: React.FC = () => {
       case 'terms':
         return <StaticPages page="terms" />;
 
+      case 'disclaimer':
+        return <StaticPages page="disclaimer" />;
+
+      case 'cookie-policy':
+        return <StaticPages page="cookie-policy" />;
+
       case 'editorial-policy':
         return <StaticPages page="editorial-policy" />;
 
@@ -191,8 +204,8 @@ const MainContent: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-white text-[#202122] font-sans relative selection:bg-blue-100 selection:text-blue-900">
-      {/* Live Subtle Black Meteor Shower Background over White (Hidden in Print) */}
+    <div className="min-h-screen flex flex-col bg-transparent text-[#202122] font-sans relative selection:bg-blue-100 selection:text-blue-900">
+      {/* Live Subtle Black Meteor Shower Background over Archival Canvas (Hidden in Print) */}
       <div className="no-print">
         <MeteorShowerBackground />
       </div>
@@ -216,7 +229,7 @@ const MainContent: React.FC = () => {
           <main
             id="main-content-region"
             role="main"
-            className="flex-1 bg-white/75 backdrop-blur-[1px] p-4 sm:p-6 lg:p-8 min-w-0 border-l border-[#eaecf0] shadow-xs"
+            className="flex-1 bg-white/90 backdrop-blur-[2px] p-4 sm:p-6 lg:p-8 min-w-0 border-l border-[#eaecf0] shadow-xs"
           >
             <div className="max-w-5xl mx-auto">
               {renderCurrentView()}
@@ -241,6 +254,10 @@ const MainContent: React.FC = () => {
           currentArticle={currentArticleInfo}
         />
       </div>
+
+      {/* Legal & Cookie Consent Interface (Banner & Preferences Manager) */}
+      <CookieConsentBanner />
+      <CookiePreferencesModal />
     </div>
   );
 };
@@ -250,7 +267,9 @@ export default function App() {
     <ThemeProvider>
       <AuthProvider>
         <RouterProvider>
-          <MainContent />
+          <ConsentProvider>
+            <MainContent />
+          </ConsentProvider>
         </RouterProvider>
       </AuthProvider>
     </ThemeProvider>

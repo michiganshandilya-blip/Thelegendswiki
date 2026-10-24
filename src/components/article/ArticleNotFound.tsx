@@ -62,7 +62,7 @@ export const ArticleNotFound: React.FC<ArticleNotFoundProps> = ({ slug }) => {
             {suggestedArticles.map((sug) => (
               <div
                 key={sug.id}
-                onClick={() => navigate(`/wiki/${sug.slug}`)}
+                onClick={() => navigate(`/wiki/${(sug.slug || '').trim() || sug.id}`)}
                 className="p-2.5 hover:bg-[#f8f9fa] transition-colors cursor-pointer flex items-center justify-between gap-3 text-xs"
               >
                 <div>

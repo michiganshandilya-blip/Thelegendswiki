@@ -4,6 +4,7 @@ import { useSEO } from '../hooks/useSEO';
 import { Breadcrumbs } from '../components/common/Breadcrumbs';
 import { TurnstileWidget } from '../components/common/TurnstileWidget';
 import { verifyTurnstileTokenOnServer } from '../services/turnstileService';
+import { submitContactErrataForm } from '../services/contactService';
 import {
   Mail,
   CheckCircle2,
@@ -21,10 +22,22 @@ import {
   UserCheck,
   Send,
   RefreshCw,
+  Sliders,
+  Palette,
+  BarChart3,
+  Film,
 } from 'lucide-react';
 
 interface StaticPageProps {
-  page: 'about' | 'contact' | 'privacy' | 'terms' | 'editorial-policy' | 'content-policy';
+  page:
+    | 'about'
+    | 'contact'
+    | 'privacy'
+    | 'terms'
+    | 'disclaimer'
+    | 'cookie-policy'
+    | 'editorial-policy'
+    | 'content-policy';
 }
 
 export const StaticPages: React.FC<StaticPageProps> = ({ page }) => {
@@ -55,6 +68,18 @@ export const StaticPages: React.FC<StaticPageProps> = ({ page }) => {
           title: 'Terms of Use & Open Content License',
           description: 'Terms of service, contributor responsibilities, Creative Commons licensing rules, and platform governance for TheLegendsWiki.',
           canonicalUrl: '/terms',
+        };
+      case 'disclaimer':
+        return {
+          title: 'Legal & Research Disclaimer — TheLegendsWiki',
+          description: 'Information disclosure regarding the research, historical archive, and non-advisory nature of content published on TheLegendsWiki.',
+          canonicalUrl: '/disclaimer',
+        };
+      case 'cookie-policy':
+        return {
+          title: 'Cookie & Local Storage Policy — TheLegendsWiki',
+          description: 'Detailed explanation of strictly necessary tokens, reader preferences, telemetry categories, and consent options on TheLegendsWiki.',
+          canonicalUrl: '/cookie-policy',
         };
       case 'editorial-policy':
         return {
@@ -118,18 +143,26 @@ const ContactErrataForm: React.FC = () => {
 
     setSubmitting(true);
     try {
-      // 1. Verify Turnstile token on server
-      const verifyResult = await verifyTurnstileTokenOnServer(turnstileToken, 'errata_contact');
-      if (!verifyResult.success) {
-        setErrorMessage(verifyResult.error || 'Security verification failed. Please try again.');
+      // Dispatch errata submission & email notification directly to michiganshandilya@gmail.com
+      const res = await submitContactErrataForm({
+        name: name.trim(),
+        email: email.trim(),
+        articleRef: articleRef.trim(),
+        disputedClaim: disputedClaim.trim(),
+        evidence: evidence.trim(),
+        submissionType: 'Errata / Factual Correction / Evidence Submission',
+        turnstileToken,
+      });
+
+      if (!res.success) {
+        setErrorMessage(res.error || 'Failed to submit errata notice. Please try again.');
         setTurnstileToken('');
         setTurnstileResetKey((prev) => prev + 1);
         setSubmitting(false);
         return;
       }
 
-      // 2. Simulated successful dispatch to editorial queue
-      const ticketId = `ERR-2026-${Math.floor(100000 + Math.random() * 900000)}`;
+      const ticketId = res.ticketId || `ERR-2026-${Math.floor(100000 + Math.random() * 900000)}`;
       setSubmittedTicket(ticketId);
       setName('');
       setEmail('');
@@ -321,6 +354,28 @@ const ContactErrataForm: React.FC = () => {
       </button>
       <button
         type="button"
+        onClick={() => navigate('/disclaimer')}
+        className={`px-2.5 py-1 rounded-xs transition-colors cursor-pointer ${
+          page === 'disclaimer'
+            ? 'bg-[#3366cc] text-white font-medium shadow-xs'
+            : 'text-[#3366cc] hover:bg-[#eaecf0]'
+        }`}
+      >
+        Disclaimer
+      </button>
+      <button
+        type="button"
+        onClick={() => navigate('/cookie-policy')}
+        className={`px-2.5 py-1 rounded-xs transition-colors cursor-pointer ${
+          page === 'cookie-policy'
+            ? 'bg-[#3366cc] text-white font-medium shadow-xs'
+            : 'text-[#3366cc] hover:bg-[#eaecf0]'
+        }`}
+      >
+        Cookie Policy
+      </button>
+      <button
+        type="button"
         onClick={() => navigate('/editorial-policy')}
         className={`px-2.5 py-1 rounded-xs transition-colors cursor-pointer ${
           page === 'editorial-policy'
@@ -446,7 +501,7 @@ const ContactErrataForm: React.FC = () => {
                   For corrections to published articles, disputed claims, source submissions, or sensitive dossier reviews:
                 </p>
                 <div className="font-mono text-xs text-[#3366cc] font-semibold select-all pt-1">
-                  editor@thelegendswiki.org
+                  Thelegendswiki@gmail.com
                 </div>
               </div>
 
@@ -734,6 +789,12 @@ const ContactErrataForm: React.FC = () => {
               </button>,{' '}
               <button type="button" onClick={() => navigate('/content-policy')} className="text-[#3366cc] underline cursor-pointer">
                 Content Policy
+              </button>,{' '}
+              <button type="button" onClick={() => navigate('/disclaimer')} className="text-[#3366cc] underline cursor-pointer">
+                Disclaimer
+              </button>,{' '}
+              <button type="button" onClick={() => navigate('/cookie-policy')} className="text-[#3366cc] underline cursor-pointer">
+                Cookie Policy
               </button>, and{' '}
               <button type="button" onClick={() => navigate('/privacy-policy')} className="text-[#3366cc] underline cursor-pointer">
                 Privacy Policy
@@ -746,7 +807,272 @@ const ContactErrataForm: React.FC = () => {
   }
 
   // ==========================================
-  // 5. EDITORIAL POLICY PAGE
+  // 5. LEGAL & RESEARCH DISCLAIMER PAGE
+  // ==========================================
+  if (page === 'disclaimer') {
+    return (
+      <div className="space-y-5 max-w-4xl mx-auto">
+        <Breadcrumbs items={[{ label: 'Disclaimer' }]} />
+
+        <div className="bg-[#ffffff] border border-[#a2a9b1] rounded-sm p-6 sm:p-8 space-y-6 text-sm text-[#202122] leading-relaxed shadow-xs font-sans">
+          <header className="border-b border-[#eaecf0] pb-4">
+            <div className="flex items-center gap-2 text-[#3366cc] mb-1">
+              <Scale size={22} />
+              <span className="text-[10px] font-mono uppercase tracking-widest font-bold text-[#72777d]">
+                Research &amp; Legal Notice
+              </span>
+            </div>
+            <h1 className="font-serif text-2xl sm:text-3xl font-bold text-[#101418]">
+              TheLegendsWiki Legal &amp; Research Disclaimer
+            </h1>
+            <p className="text-xs text-[#54595d] mt-1">
+              Informational research scope, non-advisory designation, and evidentiary standards.
+            </p>
+          </header>
+
+          <PolicyNavbar />
+
+          <section className="space-y-3">
+            <p>
+              <strong>TheLegendsWiki</strong> is a collaborative open reference codex and educational archive dedicated to documenting investigative narratives, forensic timelines, historical events, scientific discoveries, and behind-the-curtains corporate case studies.
+            </p>
+          </section>
+
+          {/* 1. Non-Professional Advice Disclosure */}
+          <section className="space-y-3 border-t border-[#eaecf0] pt-4">
+            <h2 className="font-serif text-lg font-bold text-[#101418] flex items-center gap-2">
+              <AlertTriangle size={18} className="text-[#b45309]" />
+              1. General Informational &amp; Non-Advisory Purpose
+            </h2>
+            <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-sm text-xs text-amber-900 space-y-2">
+              <p className="font-semibold">
+                No Financial, Investment, Legal, Medical, or Tax Advice:
+              </p>
+              <p className="leading-relaxed">
+                Articles, case studies, financial scandal timelines, and corporate analyses published on TheLegendsWiki are prepared strictly for general educational, academic, historical, and archival research purposes. Nothing on this website constitutes financial guidance, investment recommendations, securities advice, legal counsel, or professional medical opinions.
+              </p>
+              <p className="leading-relaxed">
+                Readers must not make financial, trading, legal, or business decisions based upon material found on this platform without seeking qualified independent professional counsel.
+              </p>
+            </div>
+          </section>
+
+          {/* 2. Investigative & Historical Scope */}
+          <section className="space-y-3 border-t border-[#eaecf0] pt-4">
+            <h2 className="font-serif text-lg font-bold text-[#101418]">
+              2. Investigative Scope &amp; Behind-the-Curtains Records
+            </h2>
+            <p className="text-[#54595d] text-xs leading-relaxed">
+              Our &ldquo;Behind the Curtains&rdquo; dossiers frequently examine controversial historical events, corporate governance disputes, market fluctuations, regulatory proceedings, and declassified archives. In accordance with our Editorial Policy:
+            </p>
+            <ul className="list-disc pl-5 space-y-1 text-xs text-[#54595d]">
+              <li>Unadjudicated allegations, regulatory notices, and pending lawsuits are explicitly attributed and distinguished from final court adjudications.</li>
+              <li>Presumption of innocence is respected under applicable legal norms for all named individuals and ongoing cases.</li>
+              <li>Multiple perspectives, dissenting historiographical views, and conflicting evidence are presented side-by-side to ensure neutrality.</li>
+            </ul>
+          </section>
+
+          {/* 3. Evidentiary Citations & Accuracy */}
+          <section className="space-y-3 border-t border-[#eaecf0] pt-4">
+            <h2 className="font-serif text-lg font-bold text-[#101418] flex items-center gap-2">
+              <BookOpen size={18} className="text-[#3366cc]" />
+              3. Citations, Accuracy, &amp; Continuous Errata
+            </h2>
+            <p className="text-[#54595d] text-xs leading-relaxed">
+              While our editorial board and volunteer scholars make rigorous efforts to corroborate facts with primary records (court filings, official gazettes, academic journals), historical research is subject to ongoing discovery. We do not warrant that all archival materials are error-free or exhaustive.
+            </p>
+            <p className="text-[#54595d] text-xs leading-relaxed">
+              If you identify an inaccurate fact or disputed claim, we invite you to submit verifiable primary source evidence through our{' '}
+              <button type="button" onClick={() => navigate('/contact')} className="text-[#3366cc] underline cursor-pointer font-medium">
+                Online Errata &amp; Evidence Submission Form
+              </button>.
+            </p>
+          </section>
+
+          {/* 4. External Archival Links */}
+          <section className="space-y-3 border-t border-[#eaecf0] pt-4">
+            <h2 className="font-serif text-lg font-bold text-[#101418] flex items-center gap-2">
+              <ExternalLink size={18} className="text-[#3366cc]" />
+              4. External Links &amp; Third-Party Repositories
+            </h2>
+            <p className="text-[#54595d] text-xs leading-relaxed">
+              Articles may contain hyperlinks to external government repositories, court document repositories, scholarly journals, and news archives. TheLegendsWiki does not control, endorse, or assume responsibility for the ongoing availability or contents of external third-party domains.
+            </p>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // 6. COOKIE & LOCAL STORAGE POLICY PAGE
+  // ==========================================
+  if (page === 'cookie-policy') {
+    return (
+      <div className="space-y-5 max-w-4xl mx-auto">
+        <Breadcrumbs items={[{ label: 'Cookie Policy' }]} />
+
+        <div className="bg-[#ffffff] border border-[#a2a9b1] rounded-sm p-6 sm:p-8 space-y-6 text-sm text-[#202122] leading-relaxed shadow-xs font-sans">
+          <header className="border-b border-[#eaecf0] pb-4">
+            <div className="flex items-center gap-2 text-[#3366cc] mb-1">
+              <KeyRound size={22} />
+              <span className="text-[10px] font-mono uppercase tracking-widest font-bold text-[#72777d]">
+                Token &amp; Storage Transparency
+              </span>
+            </div>
+            <h1 className="font-serif text-2xl sm:text-3xl font-bold text-[#101418]">
+              TheLegendsWiki Cookie &amp; Local Storage Policy
+            </h1>
+            <p className="text-xs text-[#54595d] mt-1">
+              Full disclosure of local browser tokens, preferences storage, and user consent controls.
+            </p>
+          </header>
+
+          <PolicyNavbar />
+
+          {/* Interactive Preferences Trigger Banner */}
+          <div className="p-4 bg-[#f8f9fa] border border-[#3366cc]/30 rounded-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+            <div className="space-y-0.5">
+              <div className="font-serif font-bold text-sm text-[#101418] flex items-center gap-2">
+                <Sliders size={16} className="text-[#3366cc]" />
+                <span>Your Cookie &amp; Consent Preferences</span>
+              </div>
+              <p className="text-xs text-[#54595d]">
+                You can review, customize, or revoke your cookie choices at any time.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('thelegendswiki:open-cookie-preferences'));
+              }}
+              className="px-4 py-2 bg-[#3366cc] hover:bg-[#2557bb] text-white rounded-sm text-xs font-semibold shadow-xs transition-colors cursor-pointer shrink-0 flex items-center justify-center gap-2"
+            >
+              <Sliders size={14} />
+              <span>Manage Cookie Preferences</span>
+            </button>
+          </div>
+
+          <section className="space-y-3">
+            <p>
+              This policy explains how <strong>TheLegendsWiki</strong> uses cookies, local browser storage, and related token mechanisms when you visit our website, read encyclopedia entries, or contribute articles.
+            </p>
+          </section>
+
+          {/* 1. What are Cookies and Local Storage */}
+          <section className="space-y-3 border-t border-[#eaecf0] pt-4">
+            <h2 className="font-serif text-lg font-bold text-[#101418]">
+              1. What Are Cookies and Local Storage?
+            </h2>
+            <p className="text-[#54595d] text-xs leading-relaxed">
+              Cookies and local browser storage are small text files or key-value pairs stored on your device by your web browser. They allow websites to remember your session login status, retain interface settings, and ensure secure communication without repeatedly prompting for credentials.
+            </p>
+          </section>
+
+          {/* 2. Categorization of Tokens & Storage */}
+          <section className="space-y-3 border-t border-[#eaecf0] pt-4">
+            <h2 className="font-serif text-lg font-bold text-[#101418]">
+              2. Categories of Storage Used on TheLegendsWiki
+            </h2>
+
+            <div className="space-y-3 text-xs">
+              {/* Category A: Strictly Necessary */}
+              <div className="p-3.5 bg-[#f8f9fa] border border-[#eaecf0] rounded-sm space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <strong className="text-[#101418] font-bold font-serif text-sm flex items-center gap-1.5">
+                    <Lock size={15} className="text-[#3366cc]" />
+                    A. Strictly Necessary Tokens (Always Active)
+                  </strong>
+                  <span className="text-[10px] font-mono text-emerald-800 bg-emerald-50 border border-emerald-300 px-2 py-0.5 rounded-xs font-bold uppercase">
+                    Exempt from Consent
+                  </span>
+                </div>
+                <p className="text-[#54595d] leading-relaxed">
+                  These mechanisms are vital to provide core website functionality and security. They include:
+                </p>
+                <ul className="list-disc pl-5 space-y-1 text-[#54595d] text-[11px]">
+                  <li><strong>Firebase Auth Session:</strong> Secure identity tokens managed by Google Firebase Authentication to keep authenticated contributors signed in across page transitions.</li>
+                  <li><strong>Cloudflare Turnstile Challenges:</strong> Anti-bot and scraping verification tokens ensuring forms (registration, login, errata) cannot be abused by automated bots.</li>
+                  <li><strong>Consent State Token:</strong> A single local key (<code className="font-mono bg-white px-1">thelegendswiki:legal_consent</code>) recording your privacy preferences so the consent banner does not appear repeatedly.</li>
+                </ul>
+              </div>
+
+              {/* Category B: Reader Preferences */}
+              <div className="p-3.5 bg-white border border-[#eaecf0] rounded-sm space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <strong className="text-[#101418] font-bold font-serif text-sm flex items-center gap-1.5">
+                    <Palette size={15} className="text-[#b45309]" />
+                    B. Reader Preferences &amp; Experience
+                  </strong>
+                  <span className="text-[10px] font-mono text-[#3366cc] bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-xs font-bold uppercase">
+                    User Controlled
+                  </span>
+                </div>
+                <p className="text-[#54595d] leading-relaxed">
+                  Remembers your interface customization choices, including Dark/Light theme mode (<code className="font-mono bg-[#f8f9fa] px-1">thelegendswiki-theme</code>), collapsed navigation menus, and local draft recovery caches for article authors.
+                </p>
+              </div>
+
+              {/* Category C: Analytics */}
+              <div className="p-3.5 bg-white border border-[#eaecf0] rounded-sm space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <strong className="text-[#101418] font-bold font-serif text-sm flex items-center gap-1.5">
+                    <BarChart3 size={15} className="text-[#3366cc]" />
+                    C. Anonymous Readership Metrics &amp; Performance
+                  </strong>
+                  <span className="text-[10px] font-mono text-[#3366cc] bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-xs font-bold uppercase">
+                    User Controlled
+                  </span>
+                </div>
+                <p className="text-[#54595d] leading-relaxed">
+                  Measures aggregated article readership count and site performance metrics without cross-site tracking or selling data to advertising networks.
+                </p>
+              </div>
+
+              {/* Category D: Archival Media */}
+              <div className="p-3.5 bg-white border border-[#eaecf0] rounded-sm space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <strong className="text-[#101418] font-bold font-serif text-sm flex items-center gap-1.5">
+                    <Film size={15} className="text-[#54595d]" />
+                    D. Embedded Archival Media
+                  </strong>
+                  <span className="text-[10px] font-mono text-[#3366cc] bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-xs font-bold uppercase">
+                    User Controlled
+                  </span>
+                </div>
+                <p className="text-[#54595d] leading-relaxed">
+                  Allows third-party educational audio/video embeds and interactive archival document viewports to render inline within historical dossiers.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {/* 3. Managing Preferences */}
+          <section className="space-y-3 border-t border-[#eaecf0] pt-4">
+            <h2 className="font-serif text-lg font-bold text-[#101418]">
+              3. How to Manage or Revoke Your Consent
+            </h2>
+            <p className="text-[#54595d] text-xs leading-relaxed">
+              You have complete autonomy over optional cookie categories. You can modify your choices at any moment by clicking the{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent('thelegendswiki:open-cookie-preferences'));
+                }}
+                className="text-[#3366cc] underline cursor-pointer font-medium"
+              >
+                Cookie Preferences
+              </button>{' '}
+              link located in our site footer or by using the button at the top of this page. Additionally, you may clear cookies and local storage directly in your browser settings.
+            </p>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // 7. EDITORIAL POLICY PAGE
   // ==========================================
   if (page === 'editorial-policy') {
     return (
@@ -850,7 +1176,7 @@ const ContactErrataForm: React.FC = () => {
               6. Corrections, Errata, &amp; Takedown Requests
             </h2>
             <p className="text-[#54595d] text-xs leading-relaxed">
-              TheLegendsWiki is committed to swift correction of factual inaccuracies. Anyone may submit an errata request with documented evidence to <code className="font-mono text-[#3366cc]">editor@thelegendswiki.org</code>. Confirmed errors are promptly corrected in the article body with an accompanying entry in the article revision record.
+              TheLegendsWiki is committed to swift correction of factual inaccuracies. Anyone may submit an errata request with documented evidence to <code className="font-mono text-[#3366cc]">Thelegendswiki@gmail.com</code>. Confirmed errors are promptly corrected in the article body with an accompanying entry in the article revision record.
             </p>
           </section>
         </div>

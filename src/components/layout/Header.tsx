@@ -8,6 +8,7 @@ import { AccountMenu } from './AccountMenu';
 import { ThemeToggle } from '../common/ThemeToggle';
 import { Menu, Search, X, BookOpen, PenLine, Shuffle, Sparkles, ShieldCheck } from 'lucide-react';
 import { CodeXAvatar } from '../ai/CodeXAvatar';
+import { TheLegendsWikiLogo } from '../common/TheLegendsWikiLogo';
 
 export const Header: React.FC = () => {
   const { navigate, getRandomArticleSlug } = useRouter();
@@ -17,7 +18,11 @@ export const Header: React.FC = () => {
 
   const handleRandom = () => {
     const slug = getRandomArticleSlug();
-    navigate(`/wiki/${slug}`);
+    if (slug) {
+      navigate(`/wiki/${slug}`);
+    } else {
+      navigate('/search');
+    }
   };
 
   const handleOpenAiAssistant = () => {
@@ -39,11 +44,8 @@ export const Header: React.FC = () => {
               className="flex items-center gap-2.5 text-left focus:outline-none cursor-pointer group"
               aria-label="TheLegendsWiki Homepage"
             >
-              {/* Classic Book/Codex Emblem */}
-              <div className="relative w-8 h-8 rounded-sm bg-[#f8f9fa] border border-[#cbd5e1] flex items-center justify-center text-[#1e293b] font-bold font-legend text-sm shadow-xs group-hover:border-[#3366cc] group-hover:text-[#3366cc] transition-all">
-                <span>W</span>
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-[#2563eb] rounded-full" />
-              </div>
+              {/* Official TheLegendsWiki Logo */}
+              <TheLegendsWikiLogo size="sm" className="shadow-xs" />
               <div className="flex flex-col">
                 <div className="flex items-center gap-1.5">
                   <span className="text-base sm:text-lg font-bold text-[#101418] font-serif tracking-tight leading-tight group-hover:text-[#3366cc] transition-colors">

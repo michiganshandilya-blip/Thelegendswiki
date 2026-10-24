@@ -12,7 +12,15 @@ import {
 } from '../types';
 import { MANDATORY_DOSSIER_SECTIONS } from './dossierStructure';
 
-export const VALID_USER_ROLES: UserRole[] = ['guest', 'registered_user', 'editor', 'administrator'];
+export const VALID_USER_ROLES: UserRole[] = [
+  'user',
+  'admin',
+  'super_admin',
+  'guest',
+  'registered_user',
+  'editor',
+  'administrator'
+];
 export const VALID_ARTICLE_STATUSES: ArticleStatus[] = [
   'draft', 
   'pending_review', 
@@ -77,24 +85,35 @@ export function validateImageAlt(alt?: string): { isValid: boolean; message?: st
 /**
  * Validates an Article payload before saving to Firestore.
  */
-export function validateArticle(data: Partial<Article>): ValidationResult {
+export function validateArticle(
+  data: Partial<Article>,
+  options?: { checkSpam?: boolean }
+): ValidationResult {
   const errors: Record<string, string> = {};
+  const isDraft = data.status === 'draft';
 
-  // 1. Title validation
-  if (!data.title || typeof data.title !== 'string' || data.title.trim().length < 2) {
-    errors.title = 'Article title is required and must be at least 2 characters.';
+  // 1. Title validation (Required)
+  if (!data.title || typeof data.title !== 'string' || data.title.trim().length === 0) {
+    errors.title = 'Article title is required.';
   } else if (data.title.length > 250) {
     errors.title = 'Article title cannot exceed 250 characters.';
   }
 
-  // 2. Slug validation
+  // 2. URL Slug: auto-generate from title if missing or invalid (does not block submission)
   if (!data.slug || typeof data.slug !== 'string' || !SLUG_REGEX.test(data.slug)) {
-    errors.slug = 'Valid URL slug is required (lowercase letters, numbers, and single hyphens).';
+    if (data.title && typeof data.title === 'string' && data.title.trim().length > 0) {
+      data.slug = generateSlugFromTitle(data.title);
+    }
+  }
+  if (!data.slug || !SLUG_REGEX.test(data.slug)) {
+    data.slug = `article-${Date.now()}`;
   }
 
-  // 3. Summary validation
-  if (!data.summary || typeof data.summary !== 'string' || data.summary.trim().length < 10) {
-    errors.summary = 'Summary lead paragraph is required (minimum 10 characters).';
+  // 3. Short Summary validation (Required)
+  if (!isDraft) {
+    if (!data.summary || typeof data.summary !== 'string' || data.summary.trim().length === 0) {
+      errors.summary = 'Short summary is required.';
+    }
   }
 
   // 4. Status validation
@@ -102,40 +121,115 @@ export function validateArticle(data: Partial<Article>): ValidationResult {
     errors.status = `Status must be one of: ${VALID_ARTICLE_STATUSES.join(', ')}.`;
   }
 
-  // 5. Category validation
-  if (!data.category || typeof data.category !== 'string' || data.category.trim().length === 0) {
-    errors.category = 'Primary category name is required.';
-  }
-  if (!data.categorySlug || typeof data.categorySlug !== 'string' || !SLUG_REGEX.test(data.categorySlug)) {
-    errors.categorySlug = 'Valid primary category slug is required.';
-  }
-
-  // 6. Author validation
-  if (!data.authorId || typeof data.authorId !== 'string') {
-    errors.authorId = 'Author identifier is required.';
-  }
-
-  // 7. Mandatory 8-part dossier sections validation (for submission / publication)
-  if (data.status === 'pending_review' || data.status === 'published') {
-    const sections = data.sections || [];
-    
-    MANDATORY_DOSSIER_SECTIONS.forEach((def, index) => {
-      const sec = sections[index] || sections.find((s) => s.id === def.id || s.title?.toLowerCase() === def.title.toLowerCase());
-      const content = sec?.content ? (Array.isArray(sec.content) ? sec.content.join(' ').trim() : String(sec.content).trim()) : '';
-
-      if (!content || content.length < 15) {
-        errors[def.id] = `Section §${def.order} "${def.title}" is required (minimum 15 characters).`;
+  // 5. Primary Category validation (Required)
+  if (!isDraft) {
+    if (!data.category || typeof data.category !== 'string' || data.category.trim().length === 0) {
+      errors.category = 'Primary category is required.';
+    }
+    if (!data.categorySlug || typeof data.categorySlug !== 'string' || !SLUG_REGEX.test(data.categorySlug)) {
+      if (data.category) {
+        data.categorySlug = generateSlugFromTitle(data.category);
       }
+    }
+  }
+
+  // 6. Main / Hero Article Illustration (Required)
+  if (!isDraft) {
+    const heroImg = (data.featuredImage || data.image || '').trim();
+    if (!heroImg) {
+      errors.featuredImage = 'Main / Hero Article Illustration is required.';
+    }
+  }
+
+  // 7. Article Content / Body validation (Required)
+  if (!isDraft) {
+    const sections = data.sections || [];
+    const hasSectionContent = sections.some((s) => {
+      const c = s?.content ? (Array.isArray(s.content) ? s.content.join(' ').trim() : String(s.content).trim()) : '';
+      const bp = s?.bulletPoints ? (Array.isArray(s.bulletPoints) ? s.bulletPoints.join(' ').trim() : String(s.bulletPoints).trim()) : '';
+      return c.length > 0 || bp.length > 0;
     });
+    const hasDirectContent = typeof data.content === 'string' && data.content.trim().length > 0;
+    if (!hasSectionContent && !hasDirectContent) {
+      errors.content = 'Article content is required. Please write your article content before publishing.';
+    }
+  }
 
-    // 8. Mandatory Section 9: Sources / References validation
-    const citationsList = data.citations || data.references || [];
-    const validCitations = citationsList.filter(
-      (c) => c && ((c.title && c.title.trim().length > 0) || (c.url && c.url.trim().length > 0))
-    );
+  // 8. Automated defaults for optional / technical fields
+  if (!data.region) {
+    data.region = 'Global';
+  }
+  if (!data.contentSensitivity) {
+    data.contentSensitivity = 'normal';
+  }
+  if (!data.authorId) {
+    data.authorId = 'contributor';
+  }
 
-    if (validCitations.length === 0) {
-      errors.citations = 'Section §9 Sources / References is mandatory. You must provide at least one verifiable source or reference before submitting.';
+  // 9. Automated Link & Spam Detection (controlled by authoritative System Settings: autoFlagSpam)
+  if (!isDraft && options?.checkSpam !== false) {
+    const spamCheck = checkSpamAndLinks(data);
+    if (!spamCheck.isValid) {
+      Object.assign(errors, spamCheck.errors);
+    }
+  }
+
+  return {
+    isValid: Object.keys(errors).length === 0,
+    errors,
+  };
+}
+
+/**
+ * Automated Link & Spam Detection
+ * Detects unverified external domains, malformed protocols, suspicious TLDs,
+ * or known spam/promotional patterns in article submissions.
+ */
+export function checkSpamAndLinks(data: Partial<Article>): { isValid: boolean; errors: Record<string, string> } {
+  const errors: Record<string, string> = {};
+
+  // 1. Unverified external domains and URL link verification
+  const citations = data.citations || data.references || [];
+  const SUSPICIOUS_TLDS = ['.xyz', '.click', '.top', '.link', '.phish', '.casino', '.stream', '.tk', '.ml', '.ga', '.cf', '.gq'];
+  
+  for (let i = 0; i < citations.length; i++) {
+    const cite = citations[i];
+    if (cite && cite.url && cite.url.trim().length > 0) {
+      const urlStr = cite.url.trim();
+      if (!isValidUrl(urlStr)) {
+        errors.citations = `Automated link detection: Citation [${i + 1}] contains an unverified or malformed URL.`;
+        break;
+      }
+      try {
+        const parsed = new URL(urlStr);
+        const host = parsed.hostname.toLowerCase();
+        if (SUSPICIOUS_TLDS.some((tld) => host.endsWith(tld))) {
+          errors.citations = `Automated link detection: Citation [${i + 1}] references an unverified high-risk external domain (${host}).`;
+          break;
+        }
+      } catch {
+        errors.citations = `Automated link detection: Citation [${i + 1}] has an unparseable external link.`;
+        break;
+      }
+    }
+  }
+
+  // 2. Spam keyword / pattern detection in title, summary, or content
+  const SPAM_PATTERNS = [
+    /\b(?:buy\s+cheap|free\s+casino|crypto\s+airdrop|viagra|cialis|seo\s+ranking\s+service|loan\s+guaranteed|click\s+here\s+for\s+cash|replica\s+watches|whatsapp\s+hack)\b/i,
+  ];
+
+  const combinedText = [
+    data.title || '',
+    data.summary || '',
+    typeof data.content === 'string' ? data.content : '',
+    ...(data.sections || []).map((s) => (Array.isArray(s.content) ? s.content.join(' ') : String(s.content || ''))),
+  ].join(' ');
+
+  for (const pattern of SPAM_PATTERNS) {
+    if (pattern.test(combinedText)) {
+      errors.spam = 'Automated spam detection: Submission contains unverified spam or prohibited promotional patterns.';
+      break;
     }
   }
 
@@ -282,13 +376,21 @@ export function validateBookmark(data: Partial<Bookmark>): ValidationResult {
  */
 export function generateSlugFromTitle(title: string): string {
   if (!title) return '';
-  return title
+  const normalized = title
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove accent marks
     .toLowerCase()
     .trim()
     .replace(/['"“”‘’]/g, '') // remove quotes
     .replace(/[^a-z0-9]+/g, '-') // replace non-alphanumeric with hyphen
     .replace(/^-+|-+$/g, '') // trim leading/trailing hyphens
     .slice(0, 100); // reasonable slug length limit
+
+  if (normalized) return normalized;
+
+  // Stable deterministic fallback for non-Latin script titles (e.g. Hindi, Bengali, etc.)
+  const hash = Array.from(title).reduce((acc, char) => (acc * 31 + char.charCodeAt(0)) >>> 0, 0);
+  return `entry-${hash.toString(36)}`;
 }
 
 /**
@@ -317,3 +419,4 @@ export function sanitizeTag(rawTag: string): string {
     .replace(/\s+/g, ' ')
     .slice(0, 30);
 }
+

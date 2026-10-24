@@ -21,10 +21,13 @@ import { useCategories } from '../data/dataProvider';
 import { Breadcrumbs } from '../components/common/Breadcrumbs';
 import { LoadingState } from '../components/common/LoadingState';
 import { Button } from '../components/common/Button';
+import { TheLegendsWikiLogo } from '../components/common/TheLegendsWikiLogo';
 import { AdminAiControls } from '../components/admin/AdminAiControls';
+import { InvestigationEngineDesk } from '../components/admin/InvestigationEngineDesk';
 import {
   Shield,
   FileCheck,
+  FileCheck2,
   Users,
   History,
   FolderTree,
@@ -67,7 +70,7 @@ export const AdminPage: React.FC = () => {
   } = useAuth();
 
   // Tab State
-  const [activeTab, setActiveTab] = useState<'moderation' | 'users' | 'revisions' | 'categories' | 'ai_governance'>('moderation');
+  const [activeTab, setActiveTab] = useState<'moderation' | 'investigations' | 'users' | 'revisions' | 'categories' | 'ai_governance'>('moderation');
 
   // Moderation Data State
   const [articles, setArticles] = useState<Article[]>([]);
@@ -309,7 +312,7 @@ export const AdminPage: React.FC = () => {
       setIsDeletingArticle(true);
       const actor = {
         uid: user?.uid || userProfile?.id || 'admin',
-        email: userProfile?.email || user?.email || 'admin@thelegendswiki.org',
+        email: userProfile?.email || user?.email || 'Thelegendswiki@gmail.com',
         role: role,
       };
 
@@ -343,7 +346,7 @@ export const AdminPage: React.FC = () => {
       setUserRoleUpdatingId(userId);
       const actor = {
         uid: user?.uid || userProfile?.id || 'admin',
-        email: userProfile?.email || user?.email || 'admin@thelegendswiki.org',
+        email: userProfile?.email || user?.email || 'Thelegendswiki@gmail.com',
         role: role,
       };
 
@@ -369,7 +372,7 @@ export const AdminPage: React.FC = () => {
       setUserRoleUpdatingId(userId);
       const actor = {
         uid: user?.uid || userProfile?.id || 'admin',
-        email: userProfile?.email || user?.email || 'admin@thelegendswiki.org',
+        email: userProfile?.email || user?.email || 'Thelegendswiki@gmail.com',
         role: role,
       };
 
@@ -503,10 +506,8 @@ export const AdminPage: React.FC = () => {
       {/* Header Banner */}
       <div className="bg-[#ffffff] border border-[#a2a9b1] rounded-sm p-6 space-y-4 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-sm text-[#3366cc]">
-              <Shield size={26} />
-            </div>
+          <div className="flex items-center gap-3.5">
+            <TheLegendsWikiLogo size="lg" className="rounded-sm border border-blue-200 bg-white p-0.5 shadow-xs shrink-0" />
             <div>
               <div className="flex flex-wrap items-center gap-2 mb-1">
                 <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-[#3366cc] bg-blue-50 px-2 py-0.5 rounded-sm border border-blue-200">
@@ -524,7 +525,7 @@ export const AdminPage: React.FC = () => {
               <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#54595d]">
                 <div>
                   <span className="text-slate-500">Logged in as:</span>{' '}
-                  <strong className="text-[#101418] font-mono font-semibold">{userProfile?.email || user?.email || 'admin@thelegendswiki.org'}</strong>
+                  <strong className="text-[#101418] font-mono font-semibold">{userProfile?.email || user?.email || 'Thelegendswiki@gmail.com'}</strong>
                 </div>
                 <div>
                   <span className="text-slate-500">Role:</span>{' '}
@@ -630,6 +631,19 @@ export const AdminPage: React.FC = () => {
           <span className="text-[10px] font-mono bg-blue-100 text-[#3366cc] px-1.5 py-0.2 rounded font-bold">
             {pendingCount}
           </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('investigations')}
+          className={`px-4 py-2.5 text-xs font-semibold rounded-t-sm transition-all cursor-pointer flex items-center gap-2 border-b-2 ${
+            activeTab === 'investigations'
+              ? 'border-[#3366cc] text-[#3366cc] bg-[#ffffff] shadow-xs'
+              : 'border-transparent text-[#54595d] hover:text-[#101418] hover:bg-[#f8f9fa]'
+          }`}
+        >
+          <FileCheck2 size={15} className="text-[#3366cc]" />
+          <span>Investigation &amp; Evidence Engine</span>
         </button>
 
         <button
@@ -891,6 +905,18 @@ export const AdminPage: React.FC = () => {
             </div>
           )}
         </div>
+      )}
+
+      {/* ==================================================
+          TAB: INVESTIGATION & EVIDENCE ENGINE DESK
+          ================================================== */}
+      {activeTab === 'investigations' && (
+        <InvestigationEngineDesk
+          userProfile={userProfile}
+          user={user}
+          role={simulatedRole || role}
+          onNotification={(msg, type) => showNotification(msg, type || 'success')}
+        />
       )}
 
       {/* ==================================================

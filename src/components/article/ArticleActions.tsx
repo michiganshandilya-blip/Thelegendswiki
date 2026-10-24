@@ -1,17 +1,23 @@
 import React, { useState } from 'react';
-import { BookOpen, Edit3, MessageSquare, Bookmark, Share2, Printer, Check, History } from 'lucide-react';
+import { BookOpen, Edit3, Bookmark, Printer, Check, History } from 'lucide-react';
 import { useRouter } from '../../context/RouterContext';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../common/Button';
+import { ArticleShare } from './ArticleShare';
 
 interface ArticleActionsProps {
   articleTitle: string;
   articleSlug: string;
+  category?: string;
+  summary?: string;
   className?: string;
 }
 
 export const ArticleActions: React.FC<ArticleActionsProps> = ({
+  articleTitle,
   articleSlug,
+  category,
+  summary,
   className = '',
 }) => {
   const { navigate } = useRouter();
@@ -25,15 +31,6 @@ export const ArticleActions: React.FC<ArticleActionsProps> = ({
     setTimeout(() => {
       setToastMessage(null);
     }, 2800);
-  };
-
-  const handleShare = () => {
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(window.location.href);
-      showToast('Article URL copied to clipboard');
-    } else {
-      showToast('Link ready to share');
-    }
   };
 
   const handlePrint = () => {
@@ -86,9 +83,9 @@ export const ArticleActions: React.FC<ArticleActionsProps> = ({
 
         <button
           type="button"
-          onClick={() => navigate('/admin')}
+          onClick={() => navigate(`/edit/${encodeURIComponent(articleSlug)}?tab=history`)}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#72777d] hover:text-[#101418] border-b-2 border-transparent cursor-pointer transition-colors"
-          title="View revision audit"
+          title="View article version history & earlier snapshots"
         >
           <History size={13} />
           <span>History</span>
@@ -113,15 +110,14 @@ export const ArticleActions: React.FC<ArticleActionsProps> = ({
           <span className="hidden sm:inline">{isBookmarked ? 'Saved' : 'Bookmark'}</span>
         </Button>
 
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleShare}
-          icon={<Share2 size={13} />}
-          title="Share article URL"
-        >
-          <span className="hidden sm:inline">Share</span>
-        </Button>
+        {/* Share Popover Component with Social Media Links & Copy Link */}
+        <ArticleShare
+          articleTitle={articleTitle}
+          articleSlug={articleSlug}
+          category={category}
+          summary={summary}
+          align="right"
+        />
 
         <Button
           variant="ghost"

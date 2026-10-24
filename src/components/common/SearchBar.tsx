@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Search, X, ArrowRight } from 'lucide-react';
 import { useRouter } from '../../context/RouterContext';
-import { DEMO_ARTICLES } from '../../data/demoData';
+import { useArticles } from '../../data/dataProvider';
 
 interface SearchBarProps {
   size?: 'compact' | 'large';
@@ -20,6 +20,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   onSearchSubmit,
   className = '',
 }) => {
+  const { articles } = useArticles();
   const [query, setQuery] = useState(initialQuery);
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -62,13 +63,14 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   };
 
   const filteredSuggestions = query.trim().length >= 2
-    ? DEMO_ARTICLES.filter((article) => {
+    ? articles.filter((article) => {
         const q = query.toLowerCase();
+        const inTags = Array.isArray(article.tags) && article.tags.some((t) => t && t.toLowerCase().includes(q));
         return (
-          article.title.toLowerCase().includes(q) ||
-          article.summary.toLowerCase().includes(q) ||
-          article.category.toLowerCase().includes(q) ||
-          article.tags.some((t) => t.toLowerCase().includes(q))
+          (article.title && article.title.toLowerCase().includes(q)) ||
+          (article.summary && article.summary.toLowerCase().includes(q)) ||
+          (article.category && article.category.toLowerCase().includes(q)) ||
+          inTags
         );
       }).slice(0, 5)
     : [];

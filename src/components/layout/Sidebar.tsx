@@ -25,7 +25,11 @@ export const Sidebar: React.FC = () => {
 
   const handleRandomClick = () => {
     const slug = getRandomArticleSlug();
-    navigate(`/wiki/${slug}`);
+    if (slug) {
+      navigate(`/wiki/${slug}`);
+    } else {
+      navigate('/search');
+    }
   };
 
   const navItems = [

@@ -5,6 +5,7 @@ import { ArticleInfobox } from '../article/ArticleInfobox';
 import { ArticleFigure } from '../article/ArticleFigure';
 import { InlineCitationText } from '../article/InlineCitationText';
 import { ReferenceList } from '../article/ReferenceList';
+import { EpistemicClaimsSection } from '../article/EpistemicEvidenceCard';
 import { X, Eye, Clock, Calendar, Tag } from 'lucide-react';
 
 interface EditorPreviewModalProps {
@@ -143,15 +144,18 @@ export const EditorPreviewModal: React.FC<EditorPreviewModalProps> = ({
 
                     {section.figure && <ArticleFigure figure={section.figure} />}
 
-                    {(section.content || []).map((paragraph, pIdx) => (
-                      <p key={pIdx} className="text-[#202122] leading-relaxed font-sans">
-                        <InlineCitationText
-                          text={paragraph}
-                          citations={citations}
-                          paragraphId={`preview-s${sIdx}-p${pIdx}`}
-                        />
-                      </p>
-                    ))}
+                    {(section.content || [])
+                      .flatMap((c) => (typeof c === 'string' ? c.split(/\n\n+/) : [c]))
+                      .filter((p) => (typeof p === 'string' ? p.trim().length > 0 : Boolean(p)))
+                      .map((paragraph, pIdx) => (
+                        <p key={pIdx} className="text-[#202122] leading-relaxed font-sans whitespace-pre-line">
+                          <InlineCitationText
+                            text={paragraph}
+                            citations={citations}
+                            paragraphId={`preview-s${sIdx}-p${pIdx}`}
+                          />
+                        </p>
+                      ))}
 
                     {section.bulletPoints && section.bulletPoints.length > 0 && (
                       <ul className="list-disc pl-5 space-y-1.5 text-[#202122] marker:text-[#3366cc]">
@@ -165,6 +169,14 @@ export const EditorPreviewModal: React.FC<EditorPreviewModalProps> = ({
                           </li>
                         ))}
                       </ul>
+                    )}
+
+                    {/* Epistemic Claims / Evidence Standards */}
+                    {section.claims && section.claims.length > 0 && (
+                      <EpistemicClaimsSection
+                        claims={section.claims}
+                        title={`Epistemic Evidence Standards: ${section.title}`}
+                      />
                     )}
                   </section>
                 ))}

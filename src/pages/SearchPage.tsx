@@ -75,6 +75,16 @@ export const SearchPage: React.FC<SearchPageProps> = ({
         const response = await performAiSearch({
           query: initialQuery,
           category: selectedCategory !== 'all' ? selectedCategory : undefined,
+          availableArticles: articles.map((a) => ({
+            id: a.id,
+            title: a.title,
+            slug: a.slug,
+            category: a.category,
+            summary: a.summary,
+            tags: a.tags,
+            readingTime: a.readingTimeMinutes,
+            featuredImage: a.featuredImage,
+          })),
         });
 
         if (isMounted) {
@@ -247,14 +257,17 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               )}
 
               {/* Matched articles */}
-              {aiResult.matchedArticles && aiResult.matchedArticles.length > 0 && (
+              {aiResult.matchedArticles &&
+                aiResult.matchedArticles.filter((mArt) => articles.some((a) => a.slug === mArt.slug)).length > 0 && (
                 <div className="space-y-1.5 pt-1">
                   <div className="text-[10px] font-mono uppercase font-bold text-slate-600 flex items-center gap-1">
                     <BookOpen size={11} className="text-amber-700" />
                     <span>Prioritized Behind-the-Curtains Dossiers:</span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {aiResult.matchedArticles.map((mArt) => (
+                    {aiResult.matchedArticles
+                      .filter((mArt) => articles.some((a) => a.slug === mArt.slug))
+                      .map((mArt) => (
                       <div
                         key={mArt.slug}
                         onClick={() => navigate(`/wiki/${mArt.slug}`)}

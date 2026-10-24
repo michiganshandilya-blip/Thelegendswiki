@@ -49,6 +49,8 @@ export const ArticleAiCompanion: React.FC<ArticleAiCompanionProps> = ({
       const response = await askAiAssistant({
         messages: [{ role: 'user', content: prompt }],
         currentArticleSlug: article.slug,
+        currentArticleTitle: article.title,
+        currentArticleContent: article.content || article.summary,
       });
 
       if (response.error) {

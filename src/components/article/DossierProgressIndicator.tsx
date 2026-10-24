@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { ShieldCheck, FileText, Lock, Unlock, CheckCircle2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Lock, Unlock } from 'lucide-react';
 
 interface DossierProgressIndicatorProps {
   articleTitle?: string;
@@ -11,9 +12,10 @@ export const DossierProgressIndicator: React.FC<DossierProgressIndicatorProps> =
   classificationLevel = 'CONFIDENTIAL // DECLASSIFIED',
 }) => {
   const [scrollProgress, setScrollProgress] = useState<number>(0);
-  const [isVisible, setIsVisible] = useState<boolean>(false);
+  const [mounted, setMounted] = useState<boolean>(false);
 
   useEffect(() => {
+    setMounted(true);
     let ticking = false;
 
     const handleScroll = () => {
@@ -24,8 +26,8 @@ export const DossierProgressIndicator: React.FC<DossierProgressIndicatorProps> =
             const currentScroll = window.scrollY;
             const progress = Math.min(Math.max((currentScroll / totalHeight) * 100, 0), 100);
             setScrollProgress(progress);
-            // Show bar when user scrolls past 30px
-            setIsVisible(currentScroll > 30);
+          } else {
+            setScrollProgress(0);
           }
           ticking = false;
         });
@@ -34,10 +36,12 @@ export const DossierProgressIndicator: React.FC<DossierProgressIndicatorProps> =
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('resize', handleScroll, { passive: true });
     handleScroll();
 
     return () => {
       window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleScroll);
     };
   }, []);
 
@@ -60,10 +64,14 @@ export const DossierProgressIndicator: React.FC<DossierProgressIndicatorProps> =
     return 'text-slate-700 border-slate-300 bg-slate-50';
   };
 
-  return (
+  const progressStripContent = (
     <div
-      aria-hidden="true"
-      className="sticky top-14 z-30 w-full bg-white/95 backdrop-blur-xs border-b border-slate-200 shadow-2xs transition-all duration-200 select-none"
+      role="progressbar"
+      aria-valuenow={Math.round(scrollProgress)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label={`Dossier reading progress: ${Math.round(scrollProgress)}%`}
+      className="fixed top-14 left-0 right-0 z-30 w-full bg-white border-b border-slate-200 shadow-xs transition-all duration-150 select-none no-print overflow-hidden"
     >
       {/* Top Laser / Bar Track */}
       <div className="relative h-1 w-full bg-slate-100 overflow-hidden">
@@ -131,5 +139,17 @@ export const DossierProgressIndicator: React.FC<DossierProgressIndicatorProps> =
         </div>
       </div>
     </div>
+  );
+
+  return (
+    <>
+      {/* In-flow spacer preventing any layout shift or content clipping */}
+      <div className="h-9 w-full shrink-0 no-print" aria-hidden="true" />
+
+      {/* Permanently fixed dossier progress strip attached directly to document body */}
+      {mounted && typeof document !== 'undefined'
+        ? createPortal(progressStripContent, document.body)
+        : null}
+    </>
   );
 };

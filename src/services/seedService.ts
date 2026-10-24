@@ -40,16 +40,15 @@ export async function seedDatabaseIfEmpty(): Promise<SeedStatus> {
       catCount = await seedCategories(DEMO_CATEGORIES);
     }
 
-    if (articlesSnap.empty) {
-      artCount = await seedArticles(DEMO_ARTICLES);
-    }
+    // Do NOT automatically re-seed deleted articles into Firestore.
+    // Articles must be created dynamically by users or through deliberate administration.
 
-    if (categoriesSnap.empty || articlesSnap.empty) {
+    if (categoriesSnap.empty) {
       return {
         seeded: true,
         categoriesCount: catCount || DEMO_CATEGORIES.length,
-        articlesCount: artCount || DEMO_ARTICLES.length,
-        message: `Successfully seeded Firestore with ${catCount} categories and ${artCount} encyclopedia articles.`,
+        articlesCount: 0,
+        message: `Successfully seeded Firestore with ${catCount} categories.`,
       };
     }
 

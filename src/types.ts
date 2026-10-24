@@ -21,9 +21,11 @@ export interface UserProfile {
   displayName: string;
   email: string;
   role: UserRole;
+  authProvider?: 'password' | 'google' | 'apple' | 'phone' | string;
   phoneNumber?: string;
   photoURL?: string;
   bio?: string;
+  scholarlyBiography?: string;
   disabled?: boolean;
   articlesCount?: number;
   lastActive?: string | number | any;
@@ -49,6 +51,20 @@ export interface AuditLogEntry {
   metadata?: Record<string, any>;
 }
 
+export interface FeaturedSeriesConfig {
+  id?: string;
+  title: string; // e.g. "Who Taught Us to Want This?"
+  slug: string; // e.g. "who-taught-us-to-want-this"
+  subtitle?: string;
+  tagline?: string;
+  description?: string;
+  bannerImageUrl: string;
+  bannerImageAlt?: string;
+  active: boolean;
+  targetPath?: string;
+  articleSlugs?: string[];
+}
+
 export interface SystemSettings {
   id: string;
   siteName: string;
@@ -60,6 +76,7 @@ export interface SystemSettings {
   maintenanceMode: boolean;
   minCitationsRequired: number;
   allowedRegions: string[];
+  featuredSeries?: FeaturedSeriesConfig;
   updatedAt: string;
   updatedBy: string;
 }
@@ -90,6 +107,7 @@ export interface ArticleCitation {
   doi?: string;
   isbn?: string;
   accessDate?: string;
+  source?: string;
 }
 
 export interface InfoboxDetail {
@@ -126,6 +144,18 @@ export interface ArticleSubsection {
   figure?: ArticleImageFigure;
 }
 
+export type EpistemicClassification = 'CONFIRMED' | 'DISPUTED' | 'ALLEGED' | 'THEORY';
+
+export interface EpistemicEvidenceClaim {
+  id: string;
+  claim: string;
+  classification: EpistemicClassification;
+  sourceUrl?: string;
+  sourceTitle?: string;
+  explanation?: string;
+  createdAt?: string | number;
+}
+
 export interface ArticleSection {
   id: string;
   title: string;
@@ -134,6 +164,7 @@ export interface ArticleSection {
   orderedPoints?: string[];
   figure?: ArticleImageFigure;
   subsections?: ArticleSubsection[];
+  claims?: EpistemicEvidenceClaim[]; // Epistemic evidence standards claims
 }
 
 export interface Article {
@@ -159,6 +190,7 @@ export interface Article {
   subCategory?: string;
   tags: string[];
   authorId?: string;
+  authorEmail?: string;
   author: string;
   createdAt?: string | number | any;
   updatedAt?: string | number | any;
@@ -198,6 +230,7 @@ export interface Article {
   controversyAnalysis?: ControversyAnalysis;
   timelineEvents?: TimelineEvent[];
   handwrittenNotes?: HandwrittenNote[];
+  claims?: EpistemicEvidenceClaim[]; // Epistemic evidence standards claims
 }
 
 // ==========================================
@@ -354,6 +387,8 @@ export interface Revision {
   actionType?: RevisionActionType;
   moderationNotes?: string;
   createdAt: string | number | any;
+  snapshot?: Partial<Article>;
+  versionNumber?: string;
 }
 
 // ==========================================
@@ -411,9 +446,12 @@ export type PageRoute =
   | { type: 'contact' }
   | { type: 'privacy' }
   | { type: 'terms' }
+  | { type: 'disclaimer' }
+  | { type: 'cookie-policy' }
   | { type: 'editorial-policy' }
   | { type: 'content-policy' }
   | { type: 'sitemap' }
+  | { type: 'series'; slug?: string }
   | { type: 'notFound' };
 
 export interface BreadcrumbItem {
@@ -429,3 +467,118 @@ export interface ValidationResult {
   isValid: boolean;
   errors: Record<string, string>;
 }
+
+// ==========================================
+// 9. INVESTIGATION & EVIDENCE ENGINE TYPES
+// ==========================================
+
+export type InvestigationStatus = 
+  | 'lead' 
+  | 'evidence_gathering' 
+  | 'claims_analysis' 
+  | 'verification' 
+  | 'in_review' 
+  | 'completed' 
+  | 'published' 
+  | 'archived';
+
+export type ClaimStatus = 
+  | 'confirmed'    // Verified by unequivocal primary evidence
+  | 'supported'    // Strong corroborating evidence
+  | 'disputed'     // Active conflicting evidence or ongoing debate
+  | 'unverified'   // Assertion or lead without conclusive evidentiary backing
+  | 'refuted';     // Proven false by counter-evidence
+
+export type EvidenceType = 
+  | 'primary_document' 
+  | 'forensic_record' 
+  | 'eyewitness_testimony' 
+  | 'academic_peer_reviewed' 
+  | 'investigative_journalism' 
+  | 'official_depository' 
+  | 'public_disclosure' 
+  | 'hearsay_unverified';
+
+export type EvidenceVerificationStatus = 
+  | 'verified' 
+  | 'corroborated' 
+  | 'under_review' 
+  | 'disputed' 
+  | 'debunked' 
+  | 'unverified';
+
+export interface EvidenceItem {
+  id: string;
+  investigationId?: string;
+  title: string;
+  source: string;
+  sourceUrl?: string;
+  repository?: string;
+  dateCollected: string;
+  evidenceType: EvidenceType;
+  verificationStatus: EvidenceVerificationStatus;
+  confidenceScore?: number; // 0 to 100
+  custodyChain?: string;
+  description: string;
+  rawExcerpt?: string;
+  verifiedBy?: string;
+  verifiedAt?: string;
+  supportingClaimIds?: string[];
+  conflictingClaimIds?: string[];
+  authorId: string;
+  authorName?: string;
+  createdAt: string | number | any;
+  updatedAt?: string | number | any;
+}
+
+export interface ClaimItem {
+  id: string;
+  investigationId: string;
+  statement: string;
+  subject: string;
+  status: ClaimStatus;
+  epistemicRationale: string;
+  linkedEvidenceIds: string[]; // Independent claim-to-evidence relationships
+  counterEvidenceIds?: string[];
+  confidenceScore?: number; // 0 to 100
+  verifiedBy?: string;
+  verifiedAt?: string;
+  authorId: string;
+  createdAt: string | number | any;
+  updatedAt?: string | number | any;
+}
+
+export interface InvestigationHypothesis {
+  id: string;
+  statement: string;
+  status: 'active' | 'validated' | 'dismissed';
+  notes?: string;
+}
+
+export interface InvestigationRecord {
+  id: string;
+  title: string;
+  slug: string;
+  subject: string;
+  summary: string;
+  status: InvestigationStatus;
+  leadOrigin?: string;
+  hypotheses?: InvestigationHypothesis[];
+  articleId?: string; // Linked published or draft article ID
+  articleSlug?: string; // Linked published article slug
+  claims: ClaimItem[];
+  evidence?: EvidenceItem[];
+  evidenceCount?: number;
+  leadInvestigator: string;
+  leadInvestigatorId: string;
+  collaborators?: string[];
+  findings?: string;
+  methodology?: string;
+  reviewedBy?: string;
+  reviewedById?: string;
+  reviewedAt?: string;
+  isPublished?: boolean;
+  createdAt: string | number | any;
+  updatedAt?: string | number | any;
+}
+

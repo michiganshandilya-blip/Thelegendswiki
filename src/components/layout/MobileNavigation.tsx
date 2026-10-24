@@ -3,6 +3,7 @@ import { useRouter } from '../../context/RouterContext';
 import { useAuth } from '../../context/AuthContext';
 import { NAV_LINKS } from './Navigation';
 import { ThemeToggle } from '../common/ThemeToggle';
+import { TheLegendsWikiLogo } from '../common/TheLegendsWikiLogo';
 import { X, User, LogIn, LogOut, UserPlus, PlusCircle, ShieldCheck, Shield } from 'lucide-react';
 import { CodeXAvatar } from '../ai/CodeXAvatar';
 import { DEMO_CATEGORIES } from '../../data/demoData';
@@ -22,7 +23,11 @@ export const MobileNavigation: React.FC<MobileNavigationProps> = ({ isOpen, onCl
   const handleNavigate = (path: string) => {
     if (path === '/random') {
       const slug = getRandomArticleSlug();
-      navigate(`/wiki/${slug}`);
+      if (slug) {
+        navigate(`/wiki/${slug}`);
+      } else {
+        navigate('/search');
+      }
     } else {
       navigate(path);
     }
@@ -60,9 +65,7 @@ export const MobileNavigation: React.FC<MobileNavigationProps> = ({ isOpen, onCl
         {/* Header */}
         <div className="px-4 py-3.5 border-b border-[#eaecf0] flex items-center justify-between bg-[#f8f9fa]">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-sm bg-[#3366cc] flex items-center justify-center text-white text-xs font-bold font-legend">
-              W
-            </div>
+            <TheLegendsWikiLogo size="xs" />
             <span className="font-bold text-[#101418] text-sm font-serif">
               TheLegends<span className="text-[#3366cc]">Wiki</span>
             </span>

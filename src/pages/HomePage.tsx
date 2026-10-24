@@ -5,9 +5,11 @@ import { ArticleCard } from '../components/common/ArticleCard';
 import { CategoryCard } from '../components/common/CategoryCard';
 import { Button } from '../components/common/Button';
 import { EpistemicBadge } from '../components/common/EpistemicBadge';
-import { HeroBrandWordmark } from '../components/common/HeroBrandWordmark';
+import { FeaturedSeriesBanner } from '../components/home/FeaturedSeriesBanner';
 import { useArticles, useCategories } from '../data/dataProvider';
+import { isArticleDeleted } from '../services/articleService';
 import { useSEO } from '../hooks/useSEO';
+import { useSystemSettings } from '../hooks/useSystemSettings';
 import { generateWebsiteSchema } from '../lib/seo';
 import { 
   Sparkles, 
@@ -29,13 +31,15 @@ import {
   Compass,
   FileText,
   Key,
-  Globe2
+  Globe2,
+  Radio
 } from 'lucide-react';
 
 export const HomePage: React.FC = () => {
   const { navigate, getRandomArticleSlug } = useRouter();
   const { articles } = useArticles();
   const { categories } = useCategories();
+  const { settings: systemSettings } = useSystemSettings();
   const [selectedFacet, setSelectedFacet] = useState<string>('all');
   const [selectedRegion, setSelectedRegion] = useState<string>('All');
 
@@ -53,6 +57,11 @@ export const HomePage: React.FC = () => {
   const primaryFeatured = featuredArticles[0] || articles[0];
   const secondaryFeatured = featuredArticles.slice(1, 4);
 
+  // Dynamic Key Inquiries derived exclusively from existing publicly published, non-deleted articles
+  const keyInquiryArticles = articles
+    .filter((a) => a && a.slug && (!a.status || a.status === 'published') && !isArticleDeleted(a))
+    .slice(0, 6);
+
   // Filtered investigations by facet and region
   const filteredArticles = articles.filter((a) => {
     const matchesFacet = selectedFacet === 'all' || a.categorySlug === selectedFacet;
@@ -65,16 +74,49 @@ export const HomePage: React.FC = () => {
 
   // Recent disclosures
   const recentArticles = [...articles]
-    .sort((a, b) => b.lastUpdated.localeCompare(a.lastUpdated))
+    .sort((a, b) => {
+      const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+      const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      return timeB - timeA;
+    })
     .slice(0, 4);
 
   const handleRandomArticle = () => {
     const slug = getRandomArticleSlug();
-    navigate(`/wiki/${slug}`);
+    if (slug) {
+      navigate(`/wiki/${slug}`);
+    } else {
+      navigate('/search');
+    }
   };
 
   return (
-    <div className="space-y-10 pb-12">
+    <div className="space-y-8 pb-12">
+      {/* ==================================================
+          0. AUTHORITATIVE GLOBAL SYSTEM ANNOUNCEMENT
+          ================================================== */}
+      {systemSettings.announcementActive && systemSettings.announcementBanner && (
+        <aside
+          id="global-system-announcement-banner"
+          aria-label="Platform Announcement"
+          className="bg-amber-950/90 border border-amber-500/50 text-amber-100 px-4 py-3 rounded-xs shadow-md flex items-center justify-between gap-3 text-xs sm:text-sm font-sans"
+        >
+          <div className="flex items-center gap-3">
+            <span className="p-1.5 bg-amber-500/20 text-amber-400 rounded-xs border border-amber-500/40 shrink-0">
+              <Radio size={16} className="animate-pulse" />
+            </span>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2.5">
+              <span className="font-mono uppercase font-bold text-[10px] tracking-wider text-amber-300 bg-amber-900/80 px-2 py-0.5 rounded-xs border border-amber-700/60 inline-block w-fit">
+                Announcement
+              </span>
+              <p className="text-amber-100 font-medium leading-relaxed">
+                {systemSettings.announcementBanner}
+              </p>
+            </div>
+          </div>
+        </aside>
+      )}
+
       {/* ==================================================
           1. IMMERSIVE HERO: EXCLUSIVELY BEHIND THE CURTAINS
           ================================================== */}
@@ -101,9 +143,6 @@ export const HomePage: React.FC = () => {
                   The stories behind the stories.
                 </span>
               </div>
-
-              {/* Large Hand-Painted Brush-Calligraphy Brand Wordmark with Falling Leaves */}
-              <HeroBrandWordmark />
 
               <p className="text-slate-200 text-sm sm:text-base leading-relaxed font-sans max-w-2xl font-light">
                 Every story has a visible surface. <strong className="text-amber-200 font-semibold">TheLegendsWiki reveals what happened behind the scenes</strong>—the closed-door bargains, forensic money flows, uncredited inventors, engineering crises, and suppressed records.
@@ -140,31 +179,37 @@ export const HomePage: React.FC = () => {
               onSearchSubmit={(q) => navigate(`/search?q=${encodeURIComponent(q)}`)}
             />
 
-            <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs text-slate-300">
-              <span className="font-medium text-amber-300/80 font-mono text-[11px] flex items-center gap-1">
-                <Key size={11} /> Key Inquiries:
-              </span>
-              {[
-                { label: 'Harshad Mehta 1992 Scam', slug: 'harshad-mehta-1992-securities-scam' },
-                { label: 'Gandhi & Bhagat Singh (1931)', slug: 'gandhi-bhagat-singh-delhi-pact' },
-                { label: 'Enron & Arthur Andersen', slug: 'enron-scandal-and-arthur-andersen' },
-                { label: 'Apollo 11 1202 Alarm', slug: 'apollo-11-moon-landing' },
-                { label: 'Bavarian Illuminati (1776)', slug: 'order-of-the-bavarian-illuminati' },
-                { label: 'Ada Lovelace Note G', slug: 'ada-lovelace' },
-              ].map((term) => (
-                <button
-                  key={term.slug}
-                  type="button"
-                  onClick={() => navigate(`/wiki/${term.slug}`)}
-                  className="text-amber-200/90 hover:text-amber-100 hover:underline px-2 py-0.5 bg-slate-900/80 border border-slate-700/80 hover:border-amber-400/60 rounded-xs cursor-pointer text-xs transition-colors"
-                >
-                  {term.label}
-                </button>
-              ))}
-            </div>
+            {keyInquiryArticles.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs text-slate-300">
+                <span className="font-medium text-amber-300/80 font-mono text-[11px] flex items-center gap-1">
+                  <Key size={11} /> Key Inquiries:
+                </span>
+                {keyInquiryArticles.map((article) => {
+                  const targetSlug = (article.slug || '').trim() || (article.id || '').trim();
+                  return (
+                    <button
+                      key={targetSlug || article.id}
+                      type="button"
+                      onClick={() => {
+                        if (targetSlug) navigate(`/wiki/${targetSlug}`);
+                      }}
+                      className="text-amber-200/90 hover:text-amber-100 hover:underline px-2 py-0.5 bg-slate-900/80 border border-slate-700/80 hover:border-amber-400/60 rounded-xs cursor-pointer text-xs transition-colors"
+                    >
+                      {article.title}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </section>
+
+      {/* ==================================================
+          1.5 FEATURED INVESTIGATION SERIES PROMOTIONAL BANNER
+          (Compact horizontal Amazon-style promotional card)
+          ================================================== */}
+      <FeaturedSeriesBanner />
 
       {/* ==================================================
           2. BEHIND-THE-CURTAINS CORE FACETS NAVIGATOR
@@ -277,12 +322,16 @@ export const HomePage: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {mediaComparisonArticles.map((art) => (
-              <div 
-                key={art.id} 
-                onClick={() => navigate(`/wiki/${art.slug}`)}
-                className="p-4 bg-slate-50 border border-slate-200 hover:border-rose-300 hover:bg-rose-50/20 rounded-xs transition-all cursor-pointer space-y-3 flex flex-col justify-between"
-              >
+            {mediaComparisonArticles.map((art) => {
+              const targetSlug = (art.slug || '').trim() || (art.id || '').trim();
+              return (
+                <div 
+                  key={art.id} 
+                  onClick={() => {
+                    if (targetSlug) navigate(`/wiki/${targetSlug}`);
+                  }}
+                  className="p-4 bg-slate-50 border border-slate-200 hover:border-rose-300 hover:bg-rose-50/20 rounded-xs transition-all cursor-pointer space-y-3 flex flex-col justify-between"
+                >
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-mono uppercase font-bold text-slate-600 bg-white border border-slate-200 px-1.5 py-0.5 rounded-xs">
@@ -302,7 +351,8 @@ export const HomePage: React.FC = () => {
                   <ArrowRight size={12} />
                 </div>
               </div>
-            ))}
+            );
+          })}
           </div>
         </section>
       )}
@@ -320,7 +370,7 @@ export const HomePage: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5">
-            {['All', 'India', 'Europe', 'North America', 'Asia', 'Global'].map((region) => (
+            {['All', ...(systemSettings.allowedRegions && systemSettings.allowedRegions.length > 0 ? systemSettings.allowedRegions : ['Global', 'North America', 'Europe', 'Asia', 'Latin America', 'Middle East', 'Africa', 'Oceania'])].map((region) => (
               <button
                 key={region}
                 type="button"

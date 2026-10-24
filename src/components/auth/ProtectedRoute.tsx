@@ -4,6 +4,7 @@ import { useRouter } from '../../context/RouterContext';
 import { Button } from '../common/Button';
 import { ShieldAlert, Lock, ArrowLeft, LogIn, UserPlus, Shield } from 'lucide-react';
 import { UserRole } from '../../types';
+import { SuspendedAccountNotice } from './SuspendedAccountNotice';
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -18,7 +19,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   fallbackTitle,
   fallbackDescription,
 }) => {
-  const { isAuthenticated, role, isSuperAdmin, isAdmin, loading, userProfile, currentUser } = useAuth();
+  const { isAuthenticated, role, isSuperAdmin, isAdmin, loading, userProfile, currentUser, isSuspended } = useAuth();
   const { navigate } = useRouter();
 
   if (loading) {
@@ -90,7 +91,12 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     );
   }
 
-  // 2. Role hierarchy verification (USER -> ADMIN -> SUPER ADMIN)
+  // 2. Suspended user check (blocks all normal authenticated functionality)
+  if (isSuspended || (!isSuperAdmin && userProfile?.disabled)) {
+    return <SuspendedAccountNotice isOwnAccount={true} />;
+  }
+
+  // 3. Role hierarchy verification (USER -> ADMIN -> SUPER ADMIN)
   const roleHierarchy: Record<UserRole, number> = {
     guest: 0,
     user: 1,

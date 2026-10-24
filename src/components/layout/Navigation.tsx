@@ -22,7 +22,11 @@ export const Navigation: React.FC<NavigationProps> = ({ className = '', onLinkCl
   const handleClick = (path: string) => {
     if (path === '/random') {
       const slug = getRandomArticleSlug();
-      navigate(`/wiki/${slug}`);
+      if (slug) {
+        navigate(`/wiki/${slug}`);
+      } else {
+        navigate('/search');
+      }
     } else {
       navigate(path);
     }

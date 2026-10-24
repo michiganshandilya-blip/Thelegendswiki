@@ -11,6 +11,7 @@ import { InlineCitationText } from '../components/article/InlineCitationText';
 import { ReferenceList } from '../components/article/ReferenceList';
 import { RelatedArticles } from '../components/article/RelatedArticles';
 import { ArticleActions } from '../components/article/ArticleActions';
+import { ArticleShare } from '../components/article/ArticleShare';
 import { ArticleNotFound } from '../components/article/ArticleNotFound';
 import { ArticleAiCompanion } from '../components/article/ArticleAiCompanion';
 import { LoadingState } from '../components/common/LoadingState';
@@ -19,10 +20,13 @@ import { FinancialScandalMechanism } from '../components/article/FinancialScanda
 import { MediaComparisonSection } from '../components/article/MediaComparisonSection';
 import { PrimaryDocumentsSection } from '../components/article/PrimaryDocumentsSection';
 import { ControversyAnalysisSection } from '../components/article/ControversyAnalysisSection';
+import { InvestigationEvidenceMatrix } from '../components/article/InvestigationEvidenceMatrix';
+import { EpistemicClaimsSection } from '../components/article/EpistemicEvidenceCard';
 import { InteractiveTimeline } from '../components/article/InteractiveTimeline';
 import { HandwrittenMarginNotes } from '../components/article/HandwrittenMarginNotes';
 import { DossierProgressIndicator } from '../components/article/DossierProgressIndicator';
 import { SensitiveContentDisclaimer } from '../components/article/SensitiveContentDisclaimer';
+import { TheLegendsWikiLogo } from '../components/common/TheLegendsWikiLogo';
 import {
   Clock,
   Eye,
@@ -47,7 +51,6 @@ export const ArticlePage: React.FC<ArticlePageProps> = ({ slug }) => {
   const { navigate } = useRouter();
   const { article, loading } = useArticle(slug);
   const { articles: allArticles } = useArticles();
-  const [copiedLink, setCopiedLink] = React.useState(false);
 
   // Dynamic SEO and Structured Data injection
   useSEO(
@@ -122,14 +125,6 @@ export const ArticlePage: React.FC<ArticlePageProps> = ({ slug }) => {
     }
   };
 
-  const handleShare = () => {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(window.location.href);
-      setCopiedLink(true);
-      setTimeout(() => setCopiedLink(false), 2200);
-    }
-  };
-
   const heroImageUrl = article.featuredImage || article.image;
   const hasInfoboxImage = Boolean(article.infobox?.image);
 
@@ -154,12 +149,15 @@ export const ArticlePage: React.FC<ArticlePageProps> = ({ slug }) => {
           ================================================== */}
       <header className="print-masthead hidden">
         <div className="flex items-center justify-between border-b-2 border-black pb-2 mb-2">
-          <div>
-            <div className="font-serif font-bold text-xl tracking-tight text-black">
-              TheLegendsWiki &mdash; Behind the Curtains
-            </div>
-            <div className="text-[8.5pt] font-mono uppercase tracking-wider text-slate-700">
-              The Open Knowledge Codex &bull; Investigative Archival Record
+          <div className="flex items-center gap-3">
+            <TheLegendsWikiLogo size="md" className="border border-black" />
+            <div>
+              <div className="font-serif font-bold text-xl tracking-tight text-black">
+                TheLegendsWiki &mdash; Behind the Curtains
+              </div>
+              <div className="text-[8.5pt] font-mono uppercase tracking-wider text-slate-700">
+                The Open Knowledge Codex &bull; Investigative Archival Record
+              </div>
             </div>
           </div>
           <div className="text-right text-[8pt] font-mono text-slate-700">
@@ -207,25 +205,13 @@ export const ArticlePage: React.FC<ArticlePageProps> = ({ slug }) => {
                 Pronunciation: {article.pronunciation}
               </span>
             )}
-            <button
-              type="button"
-              onClick={handleShare}
-              className="p-1.5 text-xs text-[#54595d] hover:text-[#3366cc] hover:bg-[#f1f5f9] rounded-sm border border-[#cbd5e1] transition-colors cursor-pointer flex items-center gap-1 font-sans"
-              title="Copy shareable canonical link"
-              aria-label="Share article link"
-            >
-              {copiedLink ? (
-                <>
-                  <Check size={13} className="text-emerald-600" />
-                  <span className="text-[11px] text-emerald-700 font-medium">Copied</span>
-                </>
-              ) : (
-                <>
-                  <Share2 size={13} />
-                  <span className="text-[11px] hidden xs:inline">Share</span>
-                </>
-              )}
-            </button>
+            <ArticleShare
+              articleTitle={article.title}
+              articleSlug={article.slug}
+              category={article.category}
+              summary={article.summary}
+              align="right"
+            />
           </div>
         </div>
 
@@ -233,12 +219,15 @@ export const ArticlePage: React.FC<ArticlePageProps> = ({ slug }) => {
         <ArticleActions
           articleTitle={article.title}
           articleSlug={article.slug}
+          category={article.category}
+          summary={article.summary}
         />
 
         {/* Metadata Strip */}
         <div className="flex flex-wrap items-center gap-2.5 text-xs text-[#72777d] pt-1 font-sans">
-          <span className="inline-flex items-center gap-1 text-amber-900 font-serif font-bold">
-            TheLegendsWiki &bull; Behind the Curtains
+          <span className="inline-flex items-center gap-1.5 text-amber-900 font-serif font-bold">
+            <TheLegendsWikiLogo size="xs" />
+            <span>TheLegendsWiki &bull; Behind the Curtains</span>
           </span>
           <span className="text-[#cbd5e1]">&bull;</span>
           <button
@@ -379,16 +368,19 @@ export const ArticlePage: React.FC<ArticlePageProps> = ({ slug }) => {
                 )}
 
                 {/* Section Paragraphs with interactive inline citations & wikilinks */}
-                {(section.content || []).map((paragraph, pIdx) => (
-                  <p key={pIdx} className="text-[#202122] leading-relaxed font-sans">
-                    <InlineCitationText
-                      text={paragraph}
-                      citations={citations}
-                      paragraphId={`s${sIdx}-p${pIdx}`}
-                      currentArticleSlug={article.slug}
-                    />
-                  </p>
-                ))}
+                {(section.content || [])
+                  .flatMap((c) => (typeof c === 'string' ? c.split(/\n\n+/) : [c]))
+                  .filter((p) => (typeof p === 'string' ? p.trim().length > 0 : Boolean(p)))
+                  .map((paragraph, pIdx) => (
+                    <p key={pIdx} className="text-[#202122] leading-relaxed font-sans whitespace-pre-line">
+                      <InlineCitationText
+                        text={paragraph}
+                        citations={citations}
+                        paragraphId={`s${sIdx}-p${pIdx}`}
+                        currentArticleSlug={article.slug}
+                      />
+                    </p>
+                  ))}
 
                 {/* Unordered Bullet Points if present */}
                 {section.bulletPoints && section.bulletPoints.length > 0 && (
@@ -465,9 +457,22 @@ export const ArticlePage: React.FC<ArticlePageProps> = ({ slug }) => {
                     ))}
                   </div>
                 )}
+
+                {/* Epistemic Claims / Evidence Standards */}
+                {section.claims && section.claims.length > 0 && (
+                  <EpistemicClaimsSection
+                    claims={section.claims}
+                    title={`Epistemic Evidence Standards: ${section.title}`}
+                  />
+                )}
               </section>
             ))}
           </div>
+
+          {/* Top-level Epistemic Claims if present */}
+          {article.claims && article.claims.length > 0 && (
+            <EpistemicClaimsSection claims={article.claims} />
+          )}
 
           {/* ==================================================
               SPECIALIZED RESEARCH COMPONENTS
@@ -481,6 +486,9 @@ export const ArticlePage: React.FC<ArticlePageProps> = ({ slug }) => {
           {article.mediaComparison && (
             <MediaComparisonSection comparison={article.mediaComparison} />
           )}
+
+          {/* 2.5 Evidentiary Dossier & Investigation Engine Matrix */}
+          <InvestigationEvidenceMatrix articleSlug={article.slug} articleTitle={article.title} />
 
           {/* 3. Primary Historical Documents */}
           {article.primaryDocuments && article.primaryDocuments.length > 0 && (
@@ -564,6 +572,17 @@ export const ArticlePage: React.FC<ArticlePageProps> = ({ slug }) => {
             </div>
           </section>
 
+          {/* Inline Share & Permalink Broadcast Strip */}
+          <div className="no-print">
+            <ArticleShare
+              articleTitle={article.title}
+              articleSlug={article.slug}
+              category={article.category}
+              summary={article.summary}
+              variant="inline"
+            />
+          </div>
+
           {/* ==================================================
               6. LAST UPDATED & DATA SOURCE NOTE
               ================================================== */}
@@ -581,7 +600,10 @@ export const ArticlePage: React.FC<ArticlePageProps> = ({ slug }) => {
               7. ARTICLE FOOTER POLICY LINKS
               ================================================== */}
           <div className="p-3 bg-[#ffffff] border border-[#eaecf0] rounded-sm flex flex-wrap items-center justify-center sm:justify-between gap-2.5 text-xs text-[#72777d] no-print">
-            <span className="text-[11px] font-sans">TheLegendsWiki Encyclopedia Codex</span>
+            <div className="flex items-center gap-1.5">
+              <TheLegendsWikiLogo size="xs" className="w-4 h-4" />
+              <span className="text-[11px] font-sans font-medium text-[#101418]">TheLegendsWiki Encyclopedia Codex</span>
+            </div>
             <nav aria-label="Article Policies" className="flex flex-wrap items-center gap-2 text-xs">
               <button
                 type="button"

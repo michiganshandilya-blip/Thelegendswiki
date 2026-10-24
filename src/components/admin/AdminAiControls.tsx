@@ -91,7 +91,7 @@ export const AdminAiControls: React.FC = () => {
       if (res.error) {
         setTestStatus(`Error: ${res.error}`);
       } else {
-        setTestStatus(`Success: Connected to Gemini 3.7 Flash. Response received: "${res.reply?.slice(0, 80)}..."`);
+        setTestStatus(`Success: Connected to ${data?.settings.modelName || 'Gemini'}. Response received: "${res.reply?.slice(0, 80)}..."`);
       }
     } catch (err: any) {
       setTestStatus(`Failed: ${err?.message || 'Connection timeout.'}`);
@@ -184,7 +184,7 @@ export const AdminAiControls: React.FC = () => {
             <div className="text-[10px] font-mono uppercase text-[#72777d]">Active Model</div>
             <div className="text-xs font-bold font-mono text-[#3366cc] mt-1 flex items-center gap-1">
               <Cpu size={12} />
-              <span>{data?.settings.modelName || 'gemini-3.7-flash'}</span>
+              <span>{data?.settings.modelName || 'gemini-3.8-flash'}</span>
             </div>
           </div>
 

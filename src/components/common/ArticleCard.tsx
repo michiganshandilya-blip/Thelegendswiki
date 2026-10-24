@@ -1,13 +1,14 @@
 import React from 'react';
 import { Article } from '../../types';
 import { useRouter } from '../../context/RouterContext';
+import { generateSlugFromTitle } from '../../lib/validation';
 import { OptimizedImage } from './OptimizedImage';
 import { EpistemicBadge } from './EpistemicBadge';
 import { Clock, Eye, Calendar, Sparkles, ArrowRight, Layers, FileText } from 'lucide-react';
 
 interface ArticleCardProps {
   article: Article;
-  layout?: 'standard' | 'compact' | 'featured' | 'horizontal' | 'recent' | 'popular' | 'curtain-dossier';
+  layout?: 'standard' | 'compact' | 'featured' | 'horizontal' | 'recent' | 'popular' | 'curtain-dossier' | 'vertical';
   showImage?: boolean;
   showDate?: boolean;
   showViews?: boolean;
@@ -24,8 +25,15 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({
 }) => {
   const { navigate } = useRouter();
 
+  const articleSlug =
+    (article.slug || '').trim() ||
+    (article.title ? generateSlugFromTitle(article.title) : '') ||
+    (article.id || '').trim();
+
   const handleCardClick = () => {
-    navigate(`/wiki/${article.slug}`);
+    if (articleSlug) {
+      navigate(`/wiki/${articleSlug}`);
+    }
   };
 
   const handleCategoryClick = (e: React.MouseEvent) => {
@@ -56,7 +64,7 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({
     const fileRefNumber = `ARC-${(article.title.length * 17 + Number(article.id || 1) * 31) % 900 + 100}`;
     return (
       <article
-        id={`article-card-curtains-${article.slug}`}
+        id={`article-card-curtains-${articleSlug || article.id}`}
         onClick={handleCardClick}
         className={`group relative overflow-hidden bg-gradient-to-b from-[#0e1626] via-[#0a0f1d] to-[#060912] border border-amber-500/30 hover:border-amber-400/80 rounded-xs cursor-pointer transition-all duration-200 shadow-md hover:shadow-2xl hover:shadow-black/70 flex flex-col justify-between ${className}`}
       >
@@ -151,7 +159,7 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({
   if (layout === 'featured') {
     return (
       <article
-        id={`article-card-featured-${article.slug}`}
+        id={`article-card-featured-${articleSlug || article.id}`}
         onClick={handleCardClick}
         className={`group relative flex flex-col md:flex-row gap-5 p-5 bg-[#ffffff] border border-[#cbd5e1] hover:border-[#2563eb] hover:bg-[#fbfcfd] transition-all duration-150 rounded-sm cursor-pointer shadow-xs ${className}`}
       >
@@ -220,7 +228,7 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({
   if (layout === 'recent') {
     return (
       <article
-        id={`article-card-recent-${article.slug}`}
+        id={`article-card-recent-${articleSlug || article.id}`}
         onClick={handleCardClick}
         className={`group p-4 bg-[#ffffff] border border-[#cbd5e1] hover:border-[#2563eb] hover:bg-[#fbfcfd] transition-all duration-150 rounded-sm cursor-pointer flex flex-col justify-between shadow-xs ${className}`}
       >
@@ -270,7 +278,7 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({
   if (layout === 'popular') {
     return (
       <article
-        id={`article-card-popular-${article.slug}`}
+        id={`article-card-popular-${articleSlug || article.id}`}
         onClick={handleCardClick}
         className={`group p-3.5 bg-[#ffffff] border border-[#cbd5e1] hover:border-[#2563eb] hover:bg-[#fbfcfd] transition-all duration-150 rounded-sm cursor-pointer flex items-start gap-3 shadow-xs ${className}`}
       >
@@ -318,7 +326,7 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({
   if (layout === 'horizontal') {
     return (
       <article
-        id={`article-card-horizontal-${article.slug}`}
+        id={`article-card-horizontal-${articleSlug || article.id}`}
         onClick={handleCardClick}
         className={`group flex gap-4 p-4 border border-[#cbd5e1] hover:border-[#2563eb] rounded-sm bg-[#ffffff] hover:bg-[#fbfcfd] cursor-pointer transition-all duration-150 shadow-xs ${className}`}
       >
@@ -364,7 +372,7 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({
   // =========================================================================
   return (
     <article
-      id={`article-card-standard-${article.slug}`}
+      id={`article-card-standard-${articleSlug || article.id}`}
       onClick={handleCardClick}
       className={`group bg-[#ffffff] border border-[#cbd5e1] hover:border-[#2563eb] hover:bg-[#fbfcfd] transition-all duration-150 rounded-sm overflow-hidden cursor-pointer flex flex-col justify-between shadow-xs ${className}`}
     >

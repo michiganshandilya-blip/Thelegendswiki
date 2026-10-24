@@ -10,6 +10,13 @@ import {
   updateAiSettings,
 } from './src/server/aiRouter';
 import { handleTurnstileVerification } from './src/server/turnstileRouter';
+import {
+  handleGetSystemSettings,
+  handleUpdateSystemSettings,
+} from './src/server/systemSettingsRouter';
+import { handleDeleteArticle, handleSaveArticle } from './src/server/articleRouter';
+import { handleContactSubmission } from './src/server/contactRouter';
+import { verifyCaller } from './src/server/authHelper';
 
 function aiApiPlugin(): Plugin {
   return {
@@ -48,8 +55,10 @@ function aiApiPlugin(): Plugin {
           res.end(JSON.stringify(payload));
         };
 
+        const urlPath = req.url ? req.url.split('?')[0].replace(/\/+$/, '') : '';
+
         try {
-          if (req.url === '/api/ai/chat' && req.method === 'POST') {
+          if (urlPath === '/api/ai/chat' && req.method === 'POST') {
             const body = await parseBody();
             const result = await handleAiChat(body, clientIp);
             if (result.error) {
@@ -58,7 +67,7 @@ function aiApiPlugin(): Plugin {
             return sendJson(200, result);
           }
 
-          if (req.url === '/api/ai/writing-assist' && req.method === 'POST') {
+          if (urlPath === '/api/ai/writing-assist' && req.method === 'POST') {
             const body = await parseBody();
             const result = await handleAiWritingAssist(body, clientIp);
             if (result.error) {
@@ -67,7 +76,7 @@ function aiApiPlugin(): Plugin {
             return sendJson(200, result);
           }
 
-          if (req.url === '/api/ai/search' && req.method === 'POST') {
+          if (urlPath === '/api/ai/search' && req.method === 'POST') {
             const body = await parseBody();
             const result = await handleAiSearch(body, clientIp);
             if (result.error) {
@@ -76,20 +85,80 @@ function aiApiPlugin(): Plugin {
             return sendJson(200, result);
           }
 
-          if (req.url === '/api/ai/settings' && req.method === 'GET') {
+          if (urlPath === '/api/ai/settings' && req.method === 'GET') {
             const result = getAiSettings();
             return sendJson(200, result);
           }
 
-          if (req.url === '/api/ai/settings' && req.method === 'POST') {
+          if (urlPath === '/api/ai/settings' && req.method === 'POST') {
             const body = await parseBody();
+            const authResult = await verifyCaller(req, body);
+            if (!authResult.success || !authResult.user) {
+              return sendJson(authResult.status || 401, { success: false, error: authResult.error || 'Unauthorized' });
+            }
+            if (!authResult.user.isAdmin) {
+              return sendJson(403, { success: false, error: 'Forbidden: Admin access required.' });
+            }
             const result = updateAiSettings(body);
             return sendJson(200, result);
           }
 
-          if (req.url === '/api/verify-turnstile' && req.method === 'POST') {
+          if (urlPath === '/api/verify-turnstile' && req.method === 'POST') {
             const body = await parseBody();
             const result = await handleTurnstileVerification(body, clientIp);
+            if (!result.success) {
+              return sendJson(400, result);
+            }
+            return sendJson(200, result);
+          }
+
+          if (urlPath === '/api/system-settings' && req.method === 'GET') {
+            const settings = await handleGetSystemSettings();
+            return sendJson(200, { success: true, settings });
+          }
+
+          if (urlPath === '/api/system-settings' && req.method === 'POST') {
+            const body = await parseBody();
+            const authResult = await verifyCaller(req, body);
+            if (!authResult.success || !authResult.user) {
+              return sendJson(authResult.status || 401, { success: false, error: authResult.error || 'Unauthorized' });
+            }
+            const result = await handleUpdateSystemSettings(body, authResult.user, req.headers.authorization);
+            if (!result.success) {
+              return sendJson(result.status || 400, result);
+            }
+            return sendJson(200, result);
+          }
+
+          if (urlPath === '/api/articles/save' && req.method === 'POST') {
+            const body = await parseBody();
+            const authResult = await verifyCaller(req, body);
+            if (!authResult.success || !authResult.user) {
+              return sendJson(authResult.status || 401, { success: false, error: authResult.error || 'Unauthorized' });
+            }
+            const result = await handleSaveArticle(body, authResult.user);
+            if (!result.success) {
+              return sendJson(result.status || 400, result);
+            }
+            return sendJson(200, result);
+          }
+
+          if (urlPath === '/api/articles/delete' && req.method === 'POST') {
+            const body = await parseBody();
+            const authResult = await verifyCaller(req, body);
+            if (!authResult.success || !authResult.user) {
+              return sendJson(authResult.status || 401, { success: false, error: authResult.error || 'Unauthorized' });
+            }
+            const result = await handleDeleteArticle(body, authResult.user);
+            if (!result.success) {
+              return sendJson(result.status || 400, result);
+            }
+            return sendJson(200, result);
+          }
+
+          if (urlPath === '/api/contact/submit' && req.method === 'POST') {
+            const body = await parseBody();
+            const result = await handleContactSubmission(body, clientIp);
             if (!result.success) {
               return sendJson(400, result);
             }

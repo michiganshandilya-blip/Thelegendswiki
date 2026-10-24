@@ -3,16 +3,21 @@ import { ArticleSection, ArticleCitation } from '../types';
 /**
  * Standardized Investigative Dossier Structure for TheLegendsWiki
  * 
- * Every dossier across all five categories follows this exact 9-part editorial structure:
- * 1. Case / Event Overview
- * 2. The Official Story
- * 3. What Happened Behind the Curtains
- * 4. Evidence & Documentation
- * 5. The Turning Point
- * 6. The Consequences
- * 7. What Remains Unresolved
- * 8. Dossier Conclusion
- * 9. Sources / References (Mandatory Citations Collection)
+ * The article-writing workflow is organized into exactly 4 sections:
+ * 1. Case Overview
+ *    - Case / Event Overview
+ *    - The Official Story
+ * 2. Investigation & Evidence
+ *    - What Happened Behind the Curtains
+ *    - Evidence & Documentation
+ * 3. Impact & Unresolved Questions
+ *    - The Turning Point
+ *    - The Consequences
+ *    - What Remains Unresolved
+ * 4. Dossier Conclusion
+ *    - Dossier Conclusion
+ * 
+ * Sources / References (Mandatory Citations Collection) are linked throughout.
  */
 
 export interface DossierSectionDefinition {
@@ -140,6 +145,49 @@ export const MANDATORY_DOSSIER_SECTIONS: DossierSectionDefinition[] = [
 ];
 
 /**
+ * Exactly 4 visible sections for the article-writing workflow.
+ * Groups the underlying dossier fields under 4 coherent editorial sections.
+ */
+export interface WorkflowSectionDefinition {
+  id: string;
+  order: number;
+  title: string;
+  subtitle: string;
+  fieldIds: string[];
+}
+
+export const ARTICLE_WORKFLOW_SECTIONS: WorkflowSectionDefinition[] = [
+  {
+    id: 'case-overview',
+    order: 1,
+    title: 'Case Overview',
+    subtitle: 'Case / Event Overview & The Official Story',
+    fieldIds: ['case-overview', 'official-story'],
+  },
+  {
+    id: 'investigation-evidence',
+    order: 2,
+    title: 'Investigation & Evidence',
+    subtitle: 'What Happened Behind the Curtains & Evidence & Documentation',
+    fieldIds: ['behind-the-curtains', 'evidence-documentation'],
+  },
+  {
+    id: 'impact-unresolved',
+    order: 3,
+    title: 'Impact & Unresolved Questions',
+    subtitle: 'The Turning Point, The Consequences & What Remains Unresolved',
+    fieldIds: ['turning-point', 'consequences', 'unresolved-questions'],
+  },
+  {
+    id: 'dossier-conclusion',
+    order: 4,
+    title: 'Dossier Conclusion',
+    subtitle: 'Dossier Conclusion',
+    fieldIds: ['dossier-conclusion'],
+  },
+];
+
+/**
  * Creates a fresh, standardized 8-section template for a new article.
  */
 export function createDefaultDossierSections(): ArticleSection[] {
@@ -148,12 +196,13 @@ export function createDefaultDossierSections(): ArticleSection[] {
     title: def.title,
     content: [''],
     bulletPoints: [],
+    claims: [],
   }));
 }
 
 /**
  * Normalizes and maps any existing article sections into the mandatory 8-section structure.
- * Preserves all existing content, bullet points, figures, and subsections without discarding data.
+ * Preserves all existing content, bullet points, figures, subsections, and epistemic claims without discarding data.
  */
 export function mapToStandardDossierSections(
   existingSections?: ArticleSection[],
@@ -212,6 +261,7 @@ export function mapToStandardDossierSections(
         orderedPoints: match.orderedPoints,
         figure: match.figure,
         subsections: match.subsections,
+        claims: match.claims || [],
       };
     }
   });
@@ -261,8 +311,10 @@ export function validateDossierSubmission(
     const content = sec?.content ? sec.content.join(' ').trim() : '';
 
     if (!content || content.length < 15) {
-      sectionErrors[def.id] = `Section §${def.order} "${def.title}" is required and must contain meaningful content (minimum 15 characters).`;
-      missingSectionTitles.push(`§${def.order} ${def.title}`);
+      const wf = ARTICLE_WORKFLOW_SECTIONS.find((w) => w.fieldIds.includes(def.id));
+      const wfPrefix = wf ? `Section ${wf.order} (${wf.title}) - ` : '';
+      sectionErrors[def.id] = `${wfPrefix}"${def.title}" is required and must contain meaningful content (minimum 15 characters).`;
+      missingSectionTitles.push(`${wfPrefix}${def.title}`);
     }
   });
 

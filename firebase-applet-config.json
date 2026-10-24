@@ -1,12 +1,12 @@
 {
-  "projectId": "gen-lang-client-0567020332",
-  "appId": "1:565747670194:web:4ab4d6eccbaa4ab72d3dab",
-  "apiKey": "AIzaSyAr8GaQijL4cHtQ4RyztRkKeFYxQn8GfOY",
-  "authDomain": "gen-lang-client-0567020332.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-thelegendswiki-21fea40a-7187-4bed-84ee-9c141576890c",
-  "storageBucket": "gen-lang-client-0567020332.firebasestorage.app",
-  "messagingSenderId": "565747670194",
-  "measurementId": "",
+  "projectId": "thelegendswiki",
+  "appId": "884457057134:web:bea3542d04d9febeb72f7f",
+  "apiKey": "AIzaSyARUX9F41jqCQ_WZSAjCIpWcTnFo4prvZI",
+  "authDomain": "thelegendswiki.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "thelegendswiki.firebasestorage.app",
+  "messagingSenderId": "884457057134",
+  "measurementId": "G-MCRWE53LDD",
   "oAuthClientId": "565747670194-tku2dp9a8gdin9ifhfk7b40qofqelr1r.apps.googleusercontent.com",
-  "recaptchaSiteKey": ""
+  "recaptchaSiteKey": "0x4AAAAAAEXXDpNw1dnMdRKN"
 }

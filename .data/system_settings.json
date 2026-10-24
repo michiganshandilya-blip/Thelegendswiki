@@ -1,0 +1,36 @@
+{
+  "id": "global_config",
+  "siteName": "TheLegendsWiki",
+  "requirePeerReview": true,
+  "allowPublicSubmissions": true,
+  "announcementBanner": "Currently archive is under maintenance mode. We will right back !!  THANK YOU 😊",
+  "announcementActive": true,
+  "autoFlagSpam": true,
+  "maintenanceMode": true,
+  "minCitationsRequired": 2,
+  "allowedRegions": [
+    "Global",
+    "North America",
+    "Europe",
+    "Asia"
+  ],
+  "featuredSeries": {
+    "id": "series-who-taught-us-to-want-this",
+    "title": "Who Taught Us to Want This?",
+    "slug": "who-taught-us-to-want-this",
+    "subtitle": "Behind manufactured desires, advertising psychology & algorithmic conditioning",
+    "tagline": "Featured Investigation Series",
+    "description": "An authoritative forensic deep-dive into the engineers, psychologists, and boardroom strategists who constructed modern consumer desire, engineered social status, and shaped what society craves behind closed doors.",
+    "bannerImageUrl": "",
+    "bannerImageAlt": "Featured Series: Who Taught Us to Want This?",
+    "active": true,
+    "targetPath": "/series/who-taught-us-to-want-this",
+    "articleSlugs": [
+      "harshad-mehta-1992",
+      "enron-arthur-andersen",
+      "bavarian-illuminati"
+    ]
+  },
+  "updatedAt": "2026-09-30T08:12:26.140Z",
+  "updatedBy": "michiganshandilya@gmail.com"
+}

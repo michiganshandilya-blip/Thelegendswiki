@@ -11,7 +11,9 @@ import {
   X, 
   Shield, 
   Smartphone,
-  KeyRound
+  KeyRound,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { Button } from '../common/Button';
 
@@ -32,6 +34,7 @@ export const SocialAuthProviders: React.FC<SocialAuthProvidersProps> = ({
   const [activeProvider, setActiveProvider] = useState<'google' | 'apple' | 'phone' | null>(null);
   const [providerError, setProviderError] = useState<string | null>(null);
   const [isPhoneModalOpen, setIsPhoneModalOpen] = useState(false);
+  const [copiedDomain, setCopiedDomain] = useState(false);
 
   // Phone Auth State
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -204,9 +207,59 @@ export const SocialAuthProviders: React.FC<SocialAuthProvidersProps> = ({
     <div className="space-y-4">
       {/* Provider-level Error Alert */}
       {providerError && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-sm text-xs text-red-700 flex items-start gap-2.5">
-          <AlertCircle size={15} className="text-red-600 shrink-0 mt-0.5" />
-          <div className="flex-1 leading-relaxed">{providerError}</div>
+        <div
+          className={`p-3.5 rounded-sm text-xs border space-y-2.5 ${
+            providerError.toLowerCase().includes('authorized domain')
+              ? 'bg-amber-50 border-amber-300 text-amber-900'
+              : 'bg-red-50 border-red-200 text-red-700'
+          }`}
+        >
+          <div className="flex items-start gap-2.5">
+            <AlertCircle
+              size={15}
+              className={
+                providerError.toLowerCase().includes('authorized domain')
+                  ? 'text-amber-700 shrink-0 mt-0.5'
+                  : 'text-red-600 shrink-0 mt-0.5'
+              }
+            />
+            <div className="flex-1 leading-relaxed">{providerError}</div>
+          </div>
+
+          {providerError.toLowerCase().includes('authorized domain') && typeof window !== 'undefined' && (
+            <div className="bg-white p-3 border border-amber-200 rounded-sm space-y-2">
+              <div className="text-[11px] font-semibold text-amber-900 flex items-center justify-between gap-2">
+                <span>Current Web Domain:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (navigator?.clipboard) {
+                      navigator.clipboard.writeText(window.location.hostname);
+                      setCopiedDomain(true);
+                      setTimeout(() => setCopiedDomain(false), 2500);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 text-[11px] text-[#3366cc] hover:underline cursor-pointer font-sans"
+                >
+                  {copiedDomain ? (
+                    <span className="text-emerald-700 font-bold inline-flex items-center gap-1">
+                      <Check size={12} /> Copied!
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1">
+                      <Copy size={12} /> Copy Domain
+                    </span>
+                  )}
+                </button>
+              </div>
+              <div className="font-mono text-[11px] bg-[#f8f9fa] p-1.5 border border-[#eaecf0] rounded-xs text-[#101418] break-all select-all">
+                {window.location.hostname}
+              </div>
+              <p className="text-[11px] text-[#54595d] leading-relaxed">
+                Tip: You can continue signing in immediately with Email/Password or Phone below while configuring OAuth domains in Firebase Console.
+              </p>
+            </div>
+          )}
         </div>
       )}
 

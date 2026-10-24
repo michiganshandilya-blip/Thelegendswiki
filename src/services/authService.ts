@@ -16,7 +16,7 @@ import {
 } from 'firebase/auth';
 import { auth, isFirebaseConfigured } from '../lib/firebase';
 import { UserProfile } from '../types';
-import { createUserProfile, getUserById, isUsernameAvailable, ensureUserProfile, normalizeHandle } from './userService';
+import { createUserProfile, getUserById, isUsernameAvailable, ensureUserProfile, normalizeHandle, DESIGNATED_SUPER_ADMIN_EMAIL } from './userService';
 
 export interface AuthResult {
   user: User | null;
@@ -160,10 +160,15 @@ export function formatAuthError(
     };
   }
 
+  if (code === 'auth/user-not-found') {
+    return {
+      message: 'No registered user account found with this email address.',
+    };
+  }
+
   if (
     code === 'auth/invalid-credential' ||
-    code === 'auth/wrong-password' ||
-    code === 'auth/user-not-found'
+    code === 'auth/wrong-password'
   ) {
     return {
       message: 'Invalid email or password credentials. Please double check and try again.',
@@ -279,31 +284,38 @@ export async function registerWithEmail(
       console.warn('Could not update Firebase Auth displayName:', profileErr);
     }
 
-    // 4. Create Firestore document with role = 'user'
+    // 4. Create and persist user profile in Firestore
     const cleanHandle = normalizeHandle(cleanUsername) || 'scholar';
-    const newProfile: Partial<UserProfile> = {
-      id: authUser.uid,
-      username: cleanHandle,
-      displayName: cleanDisplayName,
-      email: cleanEmail,
-      role: 'user',
-      photoURL: authUser.photoURL || '',
-    };
+    const isSuperAdminEmail = cleanEmail === DESIGNATED_SUPER_ADMIN_EMAIL.toLowerCase();
 
-    await createUserProfile(newProfile);
-
-    const savedProfile = await getUserById(authUser.uid);
+    // Call ensureUserProfile directly with chosen handle and display name
+    // This populates ongoingEnsures so onAuthStateChanged shares the exact same creation promise
+    const profile = await ensureUserProfile(
+      authUser,
+      cleanHandle,
+      cleanDisplayName,
+      isSuperAdminEmail ? 'super_admin' : 'user'
+    );
 
     return {
       user: authUser,
-      profile: savedProfile || (newProfile as UserProfile),
+      profile,
     };
   } catch (error: any) {
+    const isExpectedNotice =
+      error?.code === 'auth/email-already-in-use' ||
+      error?.code === 'auth/invalid-email' ||
+      error?.code === 'auth/weak-password';
+    if (isExpectedNotice) {
+      console.warn('[Registration Flow] Validation notice in registerWithEmail:', error?.code || error?.message);
+    } else {
+      console.error('[Registration Flow] Error in registerWithEmail:', error);
+    }
     const { message, isProviderDisabled } = formatAuthError(error, 'email');
     return {
       user: null,
       profile: null,
-      error: message,
+      error: message || error?.message || 'Failed to complete registration.',
       isProviderDisabled,
     };
   }
@@ -444,7 +456,23 @@ export function setupRecaptcha(containerIdOrElement: string | HTMLElement): Reca
     }
   }
 
-  recaptchaVerifierInstance = new RecaptchaVerifier(auth, containerIdOrElement, {
+  let targetElement: string | HTMLElement = containerIdOrElement;
+  if (typeof containerIdOrElement === 'string') {
+    const existing = document.getElementById(containerIdOrElement);
+    if (!existing) {
+      // Create fallback container attached to document body
+      let fallback = document.getElementById('recaptcha-fallback-container');
+      if (!fallback) {
+        fallback = document.createElement('div');
+        fallback.id = 'recaptcha-fallback-container';
+        fallback.style.display = 'none';
+        document.body.appendChild(fallback);
+      }
+      targetElement = fallback;
+    }
+  }
+
+  recaptchaVerifierInstance = new RecaptchaVerifier(auth, targetElement, {
     size: 'invisible',
     callback: () => {
       // reCAPTCHA solved
@@ -539,27 +567,10 @@ export async function sendUserPasswordResetEmail(
   }
 
   try {
-    // Attempt with application continue URL
-    try {
-      const actionCodeSettings = {
-        url: `${window.location.origin}/reset-password`,
-        handleCodeInApp: true,
-      };
-      await sendPasswordResetEmail(auth, cleanEmail, actionCodeSettings);
-    } catch (configErr: any) {
-      const errCode = configErr?.code || '';
-      // If unauthorized-continue-uri or invalid-continue-uri, fallback cleanly to default
-      if (
-        errCode === 'auth/unauthorized-continue-uri' ||
-        errCode === 'auth/invalid-continue-uri' ||
-        errCode === 'auth/missing-continue-uri'
-      ) {
-        await sendPasswordResetEmail(auth, cleanEmail);
-      } else {
-        throw configErr;
-      }
-    }
-
+    // Dispatch standard Firebase password reset email directly via Firebase Authentication
+    // Avoids invalid mobile dynamic link settings (handleCodeInApp: true) and unauthorized continue URIs
+    await sendPasswordResetEmail(auth, cleanEmail);
+    console.log('[authService] Dispatched password reset email via Firebase Auth project:', auth.app.options.projectId, 'to:', cleanEmail);
     return { success: true };
   } catch (error: any) {
     console.error('Password Reset Request Error:', error);

@@ -27,7 +27,8 @@ export function sanitizeText(input?: string | null): string {
 }
 
 /**
- * Validates and sanitizes URLs to prevent javascript: or data: URI execution.
+ * Validates and sanitizes URLs to prevent javascript: or dangerous URI execution.
+ * Allows safe http:, https:, relative paths, and safe base64 data:image/ URLs.
  */
 export function sanitizeSafeUrl(rawUrl?: string | null): string {
   if (!rawUrl || typeof rawUrl !== 'string') return '';
@@ -37,10 +38,31 @@ export function sanitizeSafeUrl(rawUrl?: string | null): string {
   const lower = trimmed.toLowerCase();
   if (
     lower.startsWith('javascript:') ||
-    lower.startsWith('data:') ||
     lower.startsWith('vbscript:') ||
     lower.startsWith('file:')
   ) {
+    return '';
+  }
+
+  // Allow safe image base64 data URLs (jpg, png, webp, gif, svg)
+  if (lower.startsWith('data:image/')) {
+    if (
+      lower.startsWith('data:image/jpeg') ||
+      lower.startsWith('data:image/jpg') ||
+      lower.startsWith('data:image/png') ||
+      lower.startsWith('data:image/webp') ||
+      lower.startsWith('data:image/gif') ||
+      lower.startsWith('data:image/svg+xml')
+    ) {
+      if (!lower.includes('<script') && !lower.includes('javascript:')) {
+        return trimmed;
+      }
+    }
+    return '';
+  }
+
+  // Block any non-image data: URLs
+  if (lower.startsWith('data:')) {
     return '';
   }
 
@@ -236,10 +258,25 @@ export function stripUndefined<T>(obj: T): T {
     return obj.map((item) => stripUndefined(item)) as unknown as T;
   }
 
+  // Preserve Date objects and Firestore FieldValue instances (e.g., serverTimestamp(), deleteField()) intact
+  if (
+    obj instanceof Date ||
+    typeof (obj as any)?._methodName === 'string' ||
+    (obj as any)?.constructor?.name?.includes('FieldValue')
+  ) {
+    return obj;
+  }
+
   const cleaned: Record<string, any> = {};
   for (const [key, value] of Object.entries(obj)) {
     if (value !== undefined) {
-      if (value !== null && typeof value === 'object' && !(value instanceof Date)) {
+      if (
+        value !== null &&
+        typeof value === 'object' &&
+        !(value instanceof Date) &&
+        typeof (value as any)?._methodName !== 'string' &&
+        !(value as any)?.constructor?.name?.includes('FieldValue')
+      ) {
         cleaned[key] = stripUndefined(value);
       } else {
         cleaned[key] = value;

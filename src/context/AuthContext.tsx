@@ -42,6 +42,7 @@ interface AuthContextType {
   isAdmin: boolean;
   isSuperAdmin: boolean;
   isGuest: boolean;
+  isSuspended: boolean;
   signup: (
     displayName: string,
     username: string,
@@ -108,7 +109,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       const profile = await withTimeout(
         ensureUserProfile(firebaseUser),
-        3000,
+        8000,
         fallback
       );
       setUserProfile(profile || fallback);
@@ -130,24 +131,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }, 3500);
 
     if (!isFirebaseConfigured() || !auth) {
-      // Offline fallback: provide default super admin for seamless testing & initial state
-      setUserProfile({
-        id: 'super-admin-root-01',
-        username: 'super_admin_michigan',
-        displayName: 'Michigan Shandilya (Super Admin)',
-        email: DESIGNATED_SUPER_ADMIN_EMAIL,
-        role: 'super_admin',
-        photoURL: '',
-        bio: 'Chief Super Administrator with full governance authority.',
-        disabled: false,
-        articlesCount: 38,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
+      setCurrentUser(null);
+      setUserProfile(null);
       isAuthResolvedRef.current = true;
       setLoading(false);
       clearTimeout(failsafeTimer);
       return;
+    }
+
+    // Proactively sync with persistent Firebase Auth state
+    if (typeof auth.authStateReady === 'function') {
+      auth.authStateReady().then(() => {
+        if (auth.currentUser) {
+          setCurrentUser(auth.currentUser);
+        }
+      }).catch(console.warn);
     }
 
     let profileUnsub: (() => void) | null = null;
@@ -190,15 +188,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Cross-tab / In-app real-time event listener for role changes
     const handleRoleChangedEvent = (e: Event) => {
       const customEvent = e as CustomEvent<{ userId: string; newRole: UserRole; user?: UserProfile }>;
-      if (customEvent.detail && (currentUser?.uid === customEvent.detail.userId || userProfile?.id === customEvent.detail.userId)) {
-        setUserProfile((prev) => {
-          if (!prev) return prev;
+      if (!customEvent.detail) return;
+      const targetId = customEvent.detail.userId;
+      setUserProfile((prev) => {
+        if (!prev) return prev;
+        // Designated Root Super Admin always retains super_admin role
+        if (prev.email.toLowerCase() === DESIGNATED_SUPER_ADMIN_EMAIL.toLowerCase()) {
+          return { ...prev, role: 'super_admin' };
+        }
+        if (prev.id === targetId || (currentUser && currentUser.uid === targetId)) {
           return {
             ...prev,
             role: customEvent.detail.newRole,
           };
-        });
-      }
+        }
+        return prev;
+      });
     };
 
     const handleAvatarChangedEvent = (e: Event) => {
@@ -214,17 +219,35 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     };
 
+    const handleStatusChangedEvent = (e: Event) => {
+      const customEvent = e as CustomEvent<{ userId: string; disabled: boolean }>;
+      if (customEvent.detail) {
+        const { userId, disabled } = customEvent.detail;
+        if (currentUser?.uid === userId || userProfile?.id === userId) {
+          setUserProfile((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              disabled,
+            };
+          });
+        }
+      }
+    };
+
     window.addEventListener('thelegendswiki:user-role-changed', handleRoleChangedEvent);
     window.addEventListener('thelegendswiki:user-avatar-updated', handleAvatarChangedEvent);
+    window.addEventListener('thelegendswiki:user-status-changed', handleStatusChangedEvent);
 
     return () => {
       clearTimeout(failsafeTimer);
       if (profileUnsub) profileUnsub();
       window.removeEventListener('thelegendswiki:user-role-changed', handleRoleChangedEvent);
       window.removeEventListener('thelegendswiki:user-avatar-updated', handleAvatarChangedEvent);
+      window.removeEventListener('thelegendswiki:user-status-changed', handleStatusChangedEvent);
       unsubscribe();
     };
-  }, [fetchProfile, currentUser?.uid]);
+  }, [fetchProfile]);
 
   const refreshProfile = useCallback(async () => {
     if (currentUser) {
@@ -266,8 +289,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     try {
-      setUserProfile((prev) => (prev ? { ...prev, ...updates } : null));
+      // 1. Sync Firebase Auth displayName if currentUser is signed in
+      if (updates.displayName && currentUser && typeof updateProfile === 'function') {
+        try {
+          await withTimeout(updateProfile(currentUser, { displayName: updates.displayName }), 2000, null);
+        } catch (authErr) {
+          console.warn('[AuthContext] Notice: Firebase Auth profile displayName update bypassed:', authErr);
+        }
+      }
+
+      // 2. Persist to authoritative Firestore document
       const res = await updateUserProfile(targetUid, updates);
+      if (!res.success) {
+        return { success: false, error: res.error || 'Failed to update profile in database.' };
+      }
+
+      // 3. Update local state
+      setUserProfile((prev) => (prev ? { ...prev, ...updates } : null));
       return res;
     } catch (err: any) {
       return { success: false, error: err?.message || 'Failed to update profile.' };
@@ -285,6 +323,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (result.error) {
         return { success: false, error: result.error, isProviderDisabled: result.isProviderDisabled };
       }
+      if (result.user) {
+        setCurrentUser(result.user);
+      }
       if (result.profile) {
         setUserProfile(result.profile);
       }
@@ -299,6 +340,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const result = await loginWithEmail(email, password);
       if (result.error) {
         return { success: false, error: result.error, isProviderDisabled: result.isProviderDisabled };
+      }
+      if (result.user) {
+        setCurrentUser(result.user);
       }
       if (result.profile) {
         setUserProfile(result.profile);
@@ -315,6 +359,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (result.error) {
         return { success: false, error: result.error, isProviderDisabled: result.isProviderDisabled };
       }
+      if (result.user) {
+        setCurrentUser(result.user);
+      }
       if (result.profile) {
         setUserProfile(result.profile);
       }
@@ -329,6 +376,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const result = await loginWithApple();
       if (result.error) {
         return { success: false, error: result.error, isProviderDisabled: result.isProviderDisabled };
+      }
+      if (result.user) {
+        setCurrentUser(result.user);
       }
       if (result.profile) {
         setUserProfile(result.profile);
@@ -376,6 +426,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           error: result.error,
           isProviderDisabled: result.isProviderDisabled,
         };
+      }
+      if (result.user) {
+        setCurrentUser(result.user);
       }
       if (result.profile) {
         setUserProfile(result.profile);
@@ -429,32 +482,33 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setSimulatedRole(null);
   };
 
-  // Base role resolution
+  // Base role resolution: An unauthenticated visitor (no currentUser) is ALWAYS a guest.
   let rawRole: UserRole = 'guest';
-  const emailLower = (userProfile?.email || currentUser?.email || '').trim().toLowerCase();
 
-  if (emailLower === DESIGNATED_SUPER_ADMIN_EMAIL.toLowerCase()) {
-    rawRole = 'super_admin';
-  } else if (userProfile?.role) {
-    const r = userProfile.role;
-    if (r === 'super_admin') rawRole = 'super_admin';
-    else if (r === 'admin' || r === 'administrator' || r === 'editor') rawRole = 'admin';
-    else if (r === 'user' || r === 'registered_user') rawRole = 'user';
-    else rawRole = 'user';
-  } else if (currentUser) {
-    rawRole = 'user';
+  if (currentUser) {
+    const authEmail = (currentUser.email || '').trim().toLowerCase();
+    const profileRole = userProfile?.role;
+
+    if (authEmail === DESIGNATED_SUPER_ADMIN_EMAIL.toLowerCase() || profileRole === 'super_admin') {
+      rawRole = 'super_admin';
+    } else if (profileRole === 'admin' || profileRole === 'administrator' || profileRole === 'editor') {
+      rawRole = 'admin';
+    } else {
+      rawRole = 'user';
+    }
   }
   
-  // Effective role incorporates simulated role if set for testing
-  const effectiveRole: UserRole = simulatedRole || rawRole;
+  // Effective role incorporates simulated role if set for testing (only when authenticated or explicitly testing)
+  const effectiveRole: UserRole = currentUser ? (simulatedRole || rawRole) : 'guest';
 
-  const isGuest = effectiveRole === 'guest';
-  const isSuperAdmin = effectiveRole === 'super_admin' || emailLower === DESIGNATED_SUPER_ADMIN_EMAIL.toLowerCase();
-  const isAdmin = isSuperAdmin || effectiveRole === 'admin' || effectiveRole === 'administrator' || effectiveRole === 'editor';
+  const isGuest = !currentUser || effectiveRole === 'guest';
+  const isSuperAdmin = Boolean(currentUser) && effectiveRole === 'super_admin';
+  const isAdmin = Boolean(currentUser) && (isSuperAdmin || effectiveRole === 'admin' || effectiveRole === 'administrator' || effectiveRole === 'editor');
   const isEditor = isAdmin;
-  const isUser = !isGuest;
-  const isRegisteredUser = !isGuest;
-  const isAuthenticated = !isGuest && (!!currentUser || !!userProfile);
+  const isUser = Boolean(currentUser) && !isGuest;
+  const isRegisteredUser = Boolean(currentUser) && !isGuest;
+  const isAuthenticated = Boolean(currentUser);
+  const isSuspended = Boolean(!isSuperAdmin && currentUser && (userProfile?.disabled === true));
 
   return (
     <AuthContext.Provider
@@ -475,6 +529,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         isAdmin,
         isSuperAdmin,
         isGuest,
+        isSuspended,
         signup,
         login,
         signInWithGoogle,

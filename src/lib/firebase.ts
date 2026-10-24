@@ -16,18 +16,42 @@ export interface FirebaseConfig {
   firestoreDatabaseId?: string;
 }
 
-// 1. Resolve configuration from Vite environment variables with fallback to config file
+// 1. Resolve configuration prioritizing provisioned applet config (firebase-applet-config.json)
 const env = (import.meta as any).env || {};
 
+const rawEnvDbId = (env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || '').trim();
+const isAnalyticsIdInDbField = /^G-[A-Z0-9]+$/i.test(rawEnvDbId);
+
+// Authoritative production configuration: prioritize environment variables, fallback to rawConfig
+const resolvedProjectId = (env.VITE_FIREBASE_PROJECT_ID || rawConfig.projectId || 'thelegendswiki').trim();
+const resolvedApiKey = (env.VITE_FIREBASE_API_KEY || rawConfig.apiKey || '').trim();
+const resolvedAuthDomain = (env.VITE_FIREBASE_AUTH_DOMAIN || rawConfig.authDomain || `${resolvedProjectId}.firebaseapp.com`).trim();
+const resolvedStorageBucket = (env.VITE_FIREBASE_STORAGE_BUCKET || rawConfig.storageBucket || `${resolvedProjectId}.firebasestorage.app`).trim();
+const resolvedSenderId = (env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawConfig.messagingSenderId || '').trim();
+const resolvedAppId = (env.VITE_FIREBASE_APP_ID || rawConfig.appId || '').trim();
+
+// Custom database ID: prioritize valid provisioned database ID, defaulting cleanly to '(default)'
+let resolvedDbId: string = '(default)';
+if (
+  resolvedProjectId !== 'thelegendswiki' &&
+  rawConfig.firestoreDatabaseId &&
+  rawConfig.firestoreDatabaseId !== '(default)' &&
+  !/^G-[A-Z0-9]+$/i.test(rawConfig.firestoreDatabaseId)
+) {
+  resolvedDbId = rawConfig.firestoreDatabaseId;
+} else if (rawEnvDbId && rawEnvDbId !== '(default)' && !isAnalyticsIdInDbField && /^[a-z0-9-]+$/.test(rawEnvDbId)) {
+  resolvedDbId = rawEnvDbId;
+}
+
 export const firebaseConfig: FirebaseConfig = {
-  apiKey: env.VITE_FIREBASE_API_KEY || rawConfig.apiKey || '',
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || rawConfig.authDomain || '',
-  projectId: env.VITE_FIREBASE_PROJECT_ID || rawConfig.projectId || '',
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || rawConfig.storageBucket || '',
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawConfig.messagingSenderId || '',
-  appId: env.VITE_FIREBASE_APP_ID || rawConfig.appId || '',
-  measurementId: env.VITE_FIREBASE_MEASUREMENT_ID || rawConfig.measurementId || '',
-  firestoreDatabaseId: env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || rawConfig.firestoreDatabaseId || '(default)',
+  apiKey: resolvedApiKey,
+  authDomain: resolvedAuthDomain,
+  projectId: resolvedProjectId,
+  storageBucket: resolvedStorageBucket,
+  messagingSenderId: resolvedSenderId,
+  appId: resolvedAppId,
+  measurementId: (isAnalyticsIdInDbField ? rawEnvDbId : '') || env.VITE_FIREBASE_MEASUREMENT_ID || rawConfig.measurementId || '',
+  firestoreDatabaseId: resolvedDbId,
 };
 
 export const isFirebaseConfigured = (): boolean => {
@@ -57,15 +81,21 @@ try {
 
   auth = getAuth(app);
 
-  // Initialize Firestore with specific databaseId and long polling fallback
+  // Initialize Firestore with specific databaseId and forced long polling
+  // This prevents HTTP/2 RST_STREAM errors caused by Cloud Run / preview proxy environments
   const dbId = (firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)')
     ? firebaseConfig.firestoreDatabaseId
     : undefined;
 
   try {
-    db = initializeFirestore(app, {
-      experimentalAutoDetectLongPolling: true,
-    }, dbId);
+    db = initializeFirestore(
+      app,
+      {
+        experimentalForceLongPolling: true,
+        ignoreUndefinedProperties: true,
+      },
+      dbId
+    );
   } catch {
     db = dbId ? getFirestore(app, dbId) : getFirestore(app);
   }
@@ -91,6 +121,19 @@ export async function testConnection(): Promise<boolean> {
       console.warn('Firebase client is in offline mode.');
     }
     return false;
+  }
+}
+
+export async function getAuthBearerToken(forceRefresh = true): Promise<string | null> {
+  if (!auth || typeof auth.currentUser?.getIdToken !== 'function') return null;
+  try {
+    return await auth.currentUser.getIdToken(forceRefresh);
+  } catch {
+    try {
+      return await auth.currentUser.getIdToken(false);
+    } catch {
+      return null;
+    }
   }
 }
 

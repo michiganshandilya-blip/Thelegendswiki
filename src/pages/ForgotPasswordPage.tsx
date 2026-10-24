@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useRouter } from '../context/RouterContext';
 import { Button } from '../components/common/Button';
 import { Breadcrumbs } from '../components/common/Breadcrumbs';
+import { TheLegendsWikiLogo } from '../components/common/TheLegendsWikiLogo';
 import { TurnstileWidget } from '../components/common/TurnstileWidget';
 import { verifyTurnstileTokenOnServer } from '../services/turnstileService';
 import {
@@ -20,13 +21,21 @@ export const ForgotPasswordPage: React.FC = () => {
   const { resetPasswordEmail, isAuthenticated, currentUser, userProfile } = useAuth();
   const { navigate } = useRouter();
 
-  const [email, setEmail] = useState('');
+  const urlParams = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+  const [email, setEmail] = useState(() => urlParams.get('email') || '');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successEmail, setSuccessEmail] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [turnstileToken, setTurnstileToken] = useState<string>('');
   const [turnstileResetKey, setTurnstileResetKey] = useState<number>(0);
+
+  React.useEffect(() => {
+    const qEmail = new URLSearchParams(window.location.search).get('email');
+    if (qEmail && !email) {
+      setEmail(qEmail);
+    }
+  }, [email]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -170,10 +179,8 @@ export const ForgotPasswordPage: React.FC = () => {
       <div className="bg-[#ffffff] border border-[#a2a9b1] rounded-sm p-6 sm:p-8 shadow-xs">
         {/* Header */}
         <div className="border-b border-[#a2a9b1] pb-4 mb-6">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-[#f8f9fa] border border-[#c8ccd1] rounded-xs text-[#3366cc]">
-              <KeyRound size={22} />
-            </div>
+          <div className="flex items-center gap-3.5">
+            <TheLegendsWikiLogo size="lg" className="rounded-sm border border-slate-200 bg-[#f8f9fa] p-0.5 shadow-xs shrink-0" />
             <div>
               <h1 className="text-2xl font-bold text-[#101418] font-serif tracking-tight">
                 Reset Account Password
