@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ArticleCitation } from '../../types';
+import { sanitizeSafeUrl } from '../article/InlineCitationText';
 import {
   Bold,
   Italic,
@@ -14,6 +15,10 @@ import {
   BookOpen,
   ChevronDown,
   Sparkles,
+  ExternalLink,
+  Check,
+  X,
+  AlertCircle,
 } from 'lucide-react';
 
 interface EditorToolbarProps {
@@ -30,18 +35,69 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onOpenAiWritingTools,
 }) => {
   const [citationDropdownOpen, setCitationDropdownOpen] = useState<boolean>(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [linkModalOpen, setLinkModalOpen] = useState<boolean>(false);
+  const [linkUrl, setLinkUrl] = useState<string>('');
+  const [linkText, setLinkText] = useState<string>('');
+  const [linkError, setLinkError] = useState<string | null>(null);
 
-  // Close dropdown on click outside
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const linkModalRef = useRef<HTMLDivElement>(null);
+  const urlInputRef = useRef<HTMLInputElement>(null);
+
+  // Close dropdowns on click outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setCitationDropdownOpen(false);
       }
+      if (linkModalRef.current && !linkModalRef.current.contains(e.target as Node)) {
+        setLinkModalOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Focus URL input when link modal opens
+  useEffect(() => {
+    if (linkModalOpen && urlInputRef.current) {
+      setTimeout(() => urlInputRef.current?.focus(), 50);
+    }
+  }, [linkModalOpen]);
+
+  const handleOpenLinkModal = () => {
+    setCitationDropdownOpen(false);
+    setLinkModalOpen(true);
+    setLinkError(null);
+  };
+
+  const handleInsertLink = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const rawUrl = linkUrl.trim();
+    if (!rawUrl) {
+      setLinkError('Please enter or paste a valid web URL.');
+      return;
+    }
+
+    const safeUrl = sanitizeSafeUrl(rawUrl);
+    if (!safeUrl) {
+      setLinkError('Invalid or unsafe link. Only secure http:// and https:// URLs are supported.');
+      return;
+    }
+
+    const displayText = linkText.trim();
+    if (displayText) {
+      onInsertMarkdown(`[${displayText}](`, ')', safeUrl);
+    } else {
+      // Paste clean bare URL
+      onInsertMarkdown(safeUrl, '', '');
+    }
+
+    setLinkUrl('');
+    setLinkText('');
+    setLinkError(null);
+    setLinkModalOpen(false);
+  };
 
   const tools = [
     {
@@ -84,11 +140,6 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
       icon: <Code size={13} />,
       action: () => onInsertMarkdown('`', '`', 'term'),
     },
-    {
-      label: 'Hyperlink',
-      icon: <LinkIcon size={13} />,
-      action: () => onInsertMarkdown('[', '](https://example.com)', 'Link Title'),
-    },
   ];
 
   const handleInsertCitation = (citationId: number) => {
@@ -119,6 +170,117 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           {t.icon}
         </button>
       ))}
+
+      {/* Hyperlink Inserter with Safe URL Modal */}
+      <div className="relative" ref={linkModalRef}>
+        <button
+          type="button"
+          onClick={handleOpenLinkModal}
+          title="Insert Hyperlink / Source URL"
+          aria-label="Insert Hyperlink"
+          className={`p-1.5 rounded-sm transition-colors cursor-pointer flex items-center gap-1 ${
+            linkModalOpen
+              ? 'bg-[#eaecf0] text-[#3366cc]'
+              : 'hover:bg-[#eaecf0] hover:text-[#101418] text-[#54595d]'
+          }`}
+        >
+          <LinkIcon size={13} />
+        </button>
+
+        {linkModalOpen && (
+          <div className="absolute left-0 top-full mt-1 w-80 bg-[#ffffff] border border-[#a2a9b1] rounded-sm shadow-xl z-50 p-3 space-y-2.5 animate-in fade-in zoom-in-95 duration-100">
+            <div className="flex items-center justify-between pb-1.5 border-b border-[#eaecf0]">
+              <span className="text-[11px] font-mono uppercase text-[#3366cc] font-bold flex items-center gap-1">
+                <LinkIcon size={12} />
+                <span>Insert Web Hyperlink</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setLinkModalOpen(false)}
+                className="text-[#72777d] hover:text-[#101418] p-0.5 rounded-2xs cursor-pointer"
+              >
+                <X size={12} />
+              </button>
+            </div>
+
+            <form onSubmit={handleInsertLink} className="space-y-2">
+              <div>
+                <label className="block text-[10px] font-mono uppercase text-[#54595d] font-semibold mb-0.5">
+                  Web URL (Required)
+                </label>
+                <input
+                  ref={urlInputRef}
+                  type="text"
+                  value={linkUrl}
+                  onChange={(e) => {
+                    setLinkUrl(e.target.value);
+                    if (linkError) setLinkError(null);
+                  }}
+                  placeholder="https://example.com/official-report"
+                  className="w-full text-xs font-mono p-1.5 border border-[#a2a9b1] focus:border-[#3366cc] focus:outline-none rounded-2xs bg-white text-[#202122]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-mono uppercase text-[#54595d] font-semibold mb-0.5">
+                  Display Text (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={linkText}
+                  onChange={(e) => setLinkText(e.target.value)}
+                  placeholder="e.g. SEC Primary Filing Document"
+                  className="w-full text-xs font-sans p-1.5 border border-[#a2a9b1] focus:border-[#3366cc] focus:outline-none rounded-2xs bg-white text-[#202122]"
+                />
+                <span className="text-[10px] text-[#72777d] block mt-0.5">
+                  Leave blank to insert bare URL
+                </span>
+              </div>
+
+              {linkError && (
+                <div className="p-1.5 bg-red-50 border border-red-200 rounded-2xs text-red-700 text-[11px] flex items-start gap-1">
+                  <AlertCircle size={12} className="shrink-0 mt-0.5 text-red-600" />
+                  <span>{linkError}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sample = linkUrl.trim();
+                    if (sample && sanitizeSafeUrl(sample)) {
+                      window.open(sample, '_blank', 'noopener,noreferrer');
+                    }
+                  }}
+                  disabled={!linkUrl.trim() || !sanitizeSafeUrl(linkUrl.trim())}
+                  className="text-[10px] font-mono text-[#3366cc] hover:underline disabled:text-slate-300 disabled:no-underline inline-flex items-center gap-0.5 cursor-pointer"
+                >
+                  <ExternalLink size={10} />
+                  <span>Test Link</span>
+                </button>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setLinkModalOpen(false)}
+                    className="px-2 py-1 text-xs text-[#54595d] hover:bg-[#eaecf0] rounded-xs cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-2.5 py-1 text-xs font-medium text-white bg-[#3366cc] hover:bg-[#2855aa] rounded-xs cursor-pointer flex items-center gap-1 shadow-2xs"
+                  >
+                    <Check size={11} />
+                    <span>Insert Link</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        )}
+      </div>
 
       {/* Citation Inserter Dropdown */}
       <div className="h-4 w-px bg-[#cbd5e1] mx-0.5" />

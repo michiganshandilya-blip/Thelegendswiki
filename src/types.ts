@@ -21,7 +21,7 @@ export interface UserProfile {
   displayName: string;
   email: string;
   role: UserRole;
-  authProvider?: 'password' | 'google' | 'apple' | 'phone' | string;
+  authProvider?: 'password' | 'google' | 'apple' | 'phone' | 'mock' | string;
   phoneNumber?: string;
   photoURL?: string;
   bio?: string;

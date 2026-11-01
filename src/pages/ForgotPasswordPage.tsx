@@ -223,6 +223,14 @@ export const ForgotPasswordPage: React.FC = () => {
                   <div>• Open the email sent from <strong>Firebase Authentication</strong>.</div>
                   <div>• Click the secure reset link inside the email to establish a new password.</div>
                   <div>• If you do not see it within a couple minutes, please inspect your <strong>Spam / Junk</strong> folder.</div>
+                  <div className="pt-2 mt-1 border-t border-[#20c997]/30 text-emerald-950 space-y-1">
+                    <div>
+                      • <strong>Google OAuth Accounts:</strong> If you registered using <strong>"Sign in with Google"</strong>, your account does not have a Firebase password. Please return to the sign-in screen and select <em>Continue with Google</em>.
+                    </div>
+                    <div>
+                      • <strong>Email Enumeration Protection:</strong> Firebase will not deliver a reset email if the address is not registered or uses a passwordless provider.
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

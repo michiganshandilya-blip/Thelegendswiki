@@ -8,7 +8,8 @@
  * - Single-use token validation & short-lived replay protection
  * - Server-side secret key protection (never exposed to client)
  * - In-memory IP rate limiting
- * - Sanitized user-facing error reporting without internal leakage
+ * - Fail-closed error handling (no bypass on error, timeout, or invalid token)
+ * - Strict environment isolation (no test/dummy token bypass in production)
  */
 
 interface TurnstileVerifyRequest {
@@ -27,20 +28,12 @@ interface TurnstileVerifyResponse {
 // In-memory replay prevention cache: stores token hashes / values for 5 minutes
 const verifiedTokensCache = new Map<string, number>();
 
-// In-memory rapid double-submission debounce for test/dummy tokens per client IP
-const testTokenDebounceMap = new Map<string, number>();
-
 // Clean up expired tokens periodically every 2 minutes (unreferenced so it does not hold the Node process open during build)
 const cleanupInterval = setInterval(() => {
   const now = Date.now();
   for (const [token, timestamp] of verifiedTokensCache.entries()) {
     if (now - timestamp > 5 * 60 * 1000) {
       verifiedTokensCache.delete(token);
-    }
-  }
-  for (const [ip, timestamp] of testTokenDebounceMap.entries()) {
-    if (now - timestamp > 60 * 1000) {
-      testTokenDebounceMap.delete(ip);
     }
   }
 }, 2 * 60 * 1000);
@@ -70,6 +63,8 @@ function checkRateLimit(clientIp: string): boolean {
   return true;
 }
 
+const CF_TEST_SECRET = '1x0000000000000000000000000000000AA';
+
 /**
  * Validates a Turnstile token server-side.
  */
@@ -95,48 +90,42 @@ export async function handleTurnstileVerification(
     };
   }
 
-  // 3. Identify test keys and dummy tokens
-  const CF_TEST_SECRET = '1x0000000000000000000000000000000AA';
-  const secretKey = process.env.TURNSTILE_SECRET_KEY || CF_TEST_SECRET;
-  const isTestSecret =
-    !secretKey ||
-    secretKey === CF_TEST_SECRET ||
-    secretKey.startsWith('1x00000000000000000000') ||
-    secretKey.includes('test') ||
-    secretKey === 'MY_TURNSTILE_SECRET_KEY' ||
-    secretKey === 'YOUR_TURNSTILE_SECRET_KEY';
+  // 3. Environment & Secret Resolution
+  const isProduction = process.env.NODE_ENV === 'production';
+  const configuredSecret = (process.env.TURNSTILE_SECRET_KEY || '').trim();
 
-  const isTestOrFallbackToken =
-    token === 'XXXX.DUMMY.TOKEN.XXXX' ||
-    token.includes('DUMMY') ||
-    token.startsWith('fallback-token-') ||
-    token.startsWith('test-token') ||
-    token.startsWith('test_') ||
-    token === '1x00000000000000000000AA' ||
-    token === 'dummy' ||
-    token.length < 20;
+  // In production, enforce that a real, valid production secret is configured.
+  // Never silently fall back to test secrets in production.
+  const isInvalidProdSecret =
+    !configuredSecret ||
+    configuredSecret === CF_TEST_SECRET ||
+    configuredSecret.startsWith('1x00000000000000000000') ||
+    configuredSecret === 'MY_TURNSTILE_SECRET_KEY' ||
+    configuredSecret === 'YOUR_TURNSTILE_SECRET_KEY';
 
-  // 4. Test / Development Environment Handling
-  if (isTestSecret || isTestOrFallbackToken) {
-    // Prevent immediate duplicate submission of the test token within 1.5 seconds from the same client IP
-    const now = Date.now();
-    const lastUsed = testTokenDebounceMap.get(clientIp);
-    if (lastUsed && now - lastUsed < 1500) {
-      return {
-        success: false,
-        error: 'This security verification token has already been used. Please complete a new challenge.',
-      };
-    }
-    testTokenDebounceMap.set(clientIp, now);
-
+  if (isProduction && isInvalidProdSecret) {
+    console.error('[Turnstile] Production configuration error: TURNSTILE_SECRET_KEY is missing or invalid.');
     return {
-      success: true,
-      challenge_ts: new Date().toISOString(),
-      hostname: 'localhost',
+      success: false,
+      error: 'Security verification service is not properly configured. Please contact support.',
     };
   }
 
-  // 5. Replay Attack Prevention for Real Tokens: Must not have been already verified
+  // 4. Test Environment Mock Token Handling (Strictly isolated from Production)
+  // NEVER allow test or dummy tokens in production under any circumstances.
+  // In non-production, only accept an explicit mock token if explicitly enabled for testing.
+  const isExplicitTestMode =
+    !isProduction &&
+    (process.env.NODE_ENV === 'test' || process.env.ALLOW_TURNSTILE_TEST_TOKENS === 'true');
+  if (isExplicitTestMode && token === 'XXXX.DUMMY.TOKEN.XXXX') {
+    return {
+      success: true,
+      challenge_ts: new Date().toISOString(),
+      hostname: 'test-environment',
+    };
+  }
+
+  // 5. Replay Attack Prevention: Token must not have been already verified
   if (verifiedTokensCache.has(token)) {
     return {
       success: false,
@@ -144,14 +133,25 @@ export async function handleTurnstileVerification(
     };
   }
 
-  try {
-    // Attempt verification with configured secret key first
-    const verifyWithSecret = async (secret: string): Promise<{ success: boolean; data?: any }> => {
-      const formData = new URLSearchParams();
-      formData.append('secret', secret);
-      formData.append('response', token);
+  // Determine secret to use for Cloudflare API call
+  // In production: must use the configured secret.
+  // In development: use configured secret if present, or official Cloudflare test secret for local testing.
+  const secretKey = isProduction ? configuredSecret : (configuredSecret || CF_TEST_SECRET);
 
-      const cfRes = await fetch(
+  try {
+    const formData = new URLSearchParams();
+    formData.append('secret', secretKey);
+    formData.append('response', token);
+    if (clientIp && clientIp !== 'local' && clientIp !== '127.0.0.1' && clientIp !== '::1') {
+      formData.append('remoteip', clientIp);
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    let cfRes: Response;
+    try {
+      cfRes = await fetch(
         'https://challenges.cloudflare.com/turnstile/v0/siteverify',
         {
           method: 'POST',
@@ -159,88 +159,71 @@ export async function handleTurnstileVerification(
             'Content-Type': 'application/x-www-form-urlencoded',
           },
           body: formData.toString(),
+          signal: controller.signal,
         }
       );
-
-      const parsed = await cfRes.json().catch(() => ({}));
-      return { success: cfRes.ok && parsed.success === true, data: parsed };
-    };
-
-    // First attempt with configured secret
-    const primaryAttempt = await verifyWithSecret(secretKey);
-    if (primaryAttempt.success) {
-      verifiedTokensCache.set(token, Date.now());
-      return {
-        success: true,
-        challenge_ts: primaryAttempt.data?.challenge_ts || new Date().toISOString(),
-        hostname: primaryAttempt.data?.hostname,
-      };
+    } finally {
+      clearTimeout(timeoutId);
     }
 
-    // Inspect Cloudflare error codes
-    const errData = primaryAttempt.data || {};
-    const errorCodes = Array.isArray(errData['error-codes'])
-      ? errData['error-codes'].join(', ')
-      : String(errData['error-codes'] || '');
-
-    // If Cloudflare explicitly indicates the token was already consumed or expired
-    if (errorCodes.includes('timeout-or-duplicate')) {
-      verifiedTokensCache.set(token, Date.now());
+    let parsed: any;
+    try {
+      parsed = await cfRes.json();
+    } catch (parseErr: any) {
+      console.error('[Turnstile] Upstream returned non-JSON response:', parseErr?.message);
       return {
         success: false,
-        error: 'This security verification token has already been used. Please complete a new challenge.',
+        error: 'Security verification service returned an invalid response. Please retry.',
       };
     }
 
-    // Attempt fallback with test secret if domain was not authorized for configured secret
-    const testAttempt = await verifyWithSecret(CF_TEST_SECRET);
-    if (testAttempt.success) {
-      verifiedTokensCache.set(token, Date.now());
-      return {
-        success: true,
-        challenge_ts: testAttempt.data?.challenge_ts || new Date().toISOString(),
-        hostname: testAttempt.data?.hostname || 'example.com',
-      };
-    }
+    // Fail closed: reject if HTTP call failed or Cloudflare indicates success: false
+    if (!cfRes.ok || parsed?.success !== true) {
+      const errorCodes: string[] = Array.isArray(parsed?.['error-codes'])
+        ? parsed['error-codes']
+        : [];
 
-    const testErrorCodes = Array.isArray(testAttempt.data?.['error-codes'])
-      ? testAttempt.data['error-codes'].join(', ')
-      : String(testAttempt.data?.['error-codes'] || '');
+      // If Cloudflare explicitly indicates token was already consumed or expired
+      if (errorCodes.includes('timeout-or-duplicate')) {
+        verifiedTokensCache.set(token, Date.now());
+        return {
+          success: false,
+          error: 'This security verification token has expired or already been used. Please complete a new challenge.',
+        };
+      }
 
-    if (testErrorCodes.includes('timeout-or-duplicate')) {
-      verifiedTokensCache.set(token, Date.now());
       return {
         success: false,
-        error: 'This security verification token has already been used. Please complete a new challenge.',
+        error: 'Security verification failed. Please complete the challenge again.',
       };
     }
 
-    // If Cloudflare response indicated domain mismatch in preview runtime
-    if (
-      errorCodes.includes('invalid-input-response') ||
-      errorCodes.includes('invalid-input-secret') ||
-      errorCodes.includes('bad-request') ||
-      errorCodes.includes('domain-mismatch')
-    ) {
-      verifiedTokensCache.set(token, Date.now());
-      return {
-        success: true,
-        challenge_ts: new Date().toISOString(),
-        hostname: 'preview',
-      };
-    }
-
-    return {
-      success: false,
-      error: 'Security verification failed. Please complete the challenge again.',
-    };
-  } catch (_err) {
-    // Network resilience: allow preview registration to proceed if upstream Cloudflare check times out
+    // Verification succeeded: record token in replay cache
     verifiedTokensCache.set(token, Date.now());
     return {
       success: true,
-      challenge_ts: new Date().toISOString(),
-      hostname: 'network-fallback',
+      challenge_ts: parsed.challenge_ts || new Date().toISOString(),
+      hostname: parsed.hostname,
+    };
+  } catch (err: any) {
+    // Fail closed on upstream network errors, timeouts, or aborts
+    console.error(
+      '[Turnstile] Upstream verification request failed:',
+      err?.name === 'AbortError' ? 'Timeout' : err?.message || 'Network error'
+    );
+    return {
+      success: false,
+      error: 'Security verification service is temporarily unavailable. Please wait a moment and retry.',
     };
   }
+}
+
+/**
+ * Convenience helper for validating a Turnstile token.
+ */
+export async function validateTurnstileToken(
+  token: string,
+  clientIp: string = 'local'
+): Promise<TurnstileVerifyResponse> {
+  return handleTurnstileVerification({ token }, clientIp);
 }

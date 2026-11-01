@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArticleCitation } from '../../types';
 import { BookOpen, ExternalLink, ArrowUp, Bookmark } from 'lucide-react';
+import { sanitizeSafeUrl } from './InlineCitationText';
 
 interface ReferenceListProps {
   citations: ArticleCitation[];
@@ -141,14 +142,14 @@ export const ReferenceList: React.FC<ReferenceListProps> = ({
                     )}
 
                     {/* External Link */}
-                    {citation.url && (
+                    {citation.url && sanitizeSafeUrl(citation.url) && (
                       <span className="ml-2 inline-flex items-center">
                         <a
-                          href={citation.url}
+                          href={sanitizeSafeUrl(citation.url)!}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 text-[#3366cc] hover:text-[#2557bb] hover:underline text-[11px] font-mono"
-                          title="Open external source repository in new tab"
+                          title="Open external source document in new tab"
                         >
                           <span>[source]</span>
                           <ExternalLink size={10} className="inline" />

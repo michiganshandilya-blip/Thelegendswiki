@@ -112,8 +112,9 @@ export const SuperAdminPage: React.FC = () => {
     }
   };
 
-  const handleSendPasswordReset = async (email: string) => {
-    const cleanEmail = (email || '').trim().toLowerCase();
+  const handleSendPasswordReset = async (targetUser: UserProfile | null) => {
+    if (!targetUser) return;
+    const cleanEmail = (targetUser.email || '').trim().toLowerCase();
     if (!cleanEmail) {
       setResetPasswordStatus({
         loading: false,
@@ -122,6 +123,43 @@ export const SuperAdminPage: React.FC = () => {
       });
       return;
     }
+
+    if (targetUser.authProvider === 'google') {
+      setResetPasswordStatus({
+        loading: false,
+        successMessage: null,
+        errorMessage: `Password reset unavailable: @${targetUser.username} (${cleanEmail}) signs in exclusively via Google OAuth and has no Firebase password. The user must sign in using 'Sign in with Google'.`,
+      });
+      return;
+    }
+
+    if (targetUser.authProvider === 'apple') {
+      setResetPasswordStatus({
+        loading: false,
+        successMessage: null,
+        errorMessage: `Password reset unavailable: @${targetUser.username} (${cleanEmail}) signs in via Apple OAuth.`,
+      });
+      return;
+    }
+
+    if (targetUser.authProvider === 'phone') {
+      setResetPasswordStatus({
+        loading: false,
+        successMessage: null,
+        errorMessage: `Password reset unavailable: @${targetUser.username} signs in via Phone SMS verification.`,
+      });
+      return;
+    }
+
+    if (targetUser.authProvider === 'mock') {
+      setResetPasswordStatus({
+        loading: false,
+        successMessage: null,
+        errorMessage: `Password reset unavailable: @${targetUser.username} is a pre-seeded demo contributor profile and is not registered in Firebase Authentication.`,
+      });
+      return;
+    }
+
     setResetPasswordStatus({ loading: true, successMessage: null, errorMessage: null });
     try {
       const result = await resetPasswordEmail(cleanEmail);
@@ -129,7 +167,7 @@ export const SuperAdminPage: React.FC = () => {
         const activeProject = auth?.app?.options?.projectId || 'thelegendswiki';
         setResetPasswordStatus({
           loading: false,
-          successMessage: `Password reset request submitted for ${cleanEmail} via Firebase Authentication (Project: ${activeProject}). Please advise the user to check their email inbox and spam folder.`,
+          successMessage: `Password reset request submitted for ${cleanEmail} via Firebase Authentication (Project: ${activeProject}). Due to Firebase Email Enumeration Protection, an email will only be delivered if this email is an active email/password registration. Advise user to inspect Inbox and Spam folders.`,
           errorMessage: null,
         });
 
@@ -139,7 +177,7 @@ export const SuperAdminPage: React.FC = () => {
           actorEmail: actorInfo.email || DESIGNATED_SUPER_ADMIN_EMAIL,
           actorRole: 'super_admin',
           action: 'Password Reset Dispatched',
-          targetId: selectedUserDetails?.id || cleanEmail,
+          targetId: targetUser.id || cleanEmail,
           targetTitle: `Password Reset: ${cleanEmail}`,
           targetType: 'user',
           details: `Super Admin dispatched official Firebase password reset link to ${cleanEmail} via Firebase project ${activeProject}.`,
@@ -971,6 +1009,25 @@ export const SuperAdminPage: React.FC = () => {
                                 <span>{user.phoneNumber}</span>
                               </div>
                             )}
+                            <div className="mt-1">
+                              {user.authProvider === 'google' ? (
+                                <span className="inline-flex items-center gap-1 text-[9px] font-mono font-medium px-1.5 py-0.2 rounded-2xs bg-blue-50 text-blue-700 border border-blue-200">
+                                  Google OAuth
+                                </span>
+                              ) : user.authProvider === 'mock' ? (
+                                <span className="inline-flex items-center gap-1 text-[9px] font-mono font-medium px-1.5 py-0.2 rounded-2xs bg-slate-100 text-slate-600 border border-slate-200">
+                                  Demo Profile
+                                </span>
+                              ) : user.authProvider === 'phone' ? (
+                                <span className="inline-flex items-center gap-1 text-[9px] font-mono font-medium px-1.5 py-0.2 rounded-2xs bg-purple-50 text-purple-700 border border-purple-200">
+                                  Phone SMS
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[9px] font-mono font-medium px-1.5 py-0.2 rounded-2xs bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  Email & Password
+                                </span>
+                              )}
+                            </div>
                           </td>
 
                           {/* Role Badge */}
@@ -1893,6 +1950,41 @@ export const SuperAdminPage: React.FC = () => {
                   {selectedUserDetails.articlesCount ?? 0} published dossiers
                 </div>
               </div>
+
+              {/* Authentication & Identity Provider */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-sm space-y-1 sm:col-span-2">
+                <div className="text-[10px] font-mono text-slate-500 uppercase tracking-wider font-semibold flex items-center gap-1">
+                  <Key size={11} /> Authentication Method & Identity Provider
+                </div>
+                <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                  {selectedUserDetails.authProvider === 'google' ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-mono font-medium px-2 py-0.5 rounded-sm bg-blue-100 text-blue-800 border border-blue-300">
+                      Google OAuth (Federated Identity)
+                    </span>
+                  ) : selectedUserDetails.authProvider === 'mock' ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-mono font-medium px-2 py-0.5 rounded-sm bg-slate-100 text-slate-700 border border-slate-300">
+                      Pre-seeded Demo Contributor Record
+                    </span>
+                  ) : selectedUserDetails.authProvider === 'phone' ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-mono font-medium px-2 py-0.5 rounded-sm bg-purple-100 text-purple-800 border border-purple-300">
+                      Phone SMS Verification
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-mono font-medium px-2 py-0.5 rounded-sm bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      Email & Password (Firebase Authentication)
+                    </span>
+                  )}
+                  <span className="text-[11px] text-slate-500">
+                    {selectedUserDetails.authProvider === 'google'
+                      ? '• Authenticates with Google accounts; no Firebase password credential'
+                      : selectedUserDetails.authProvider === 'mock'
+                      ? '• Local encyclopedic demonstration record'
+                      : selectedUserDetails.authProvider === 'phone'
+                      ? '• Passwordless SMS verification code'
+                      : '• Standard password credential eligible for reset'}
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Biography */}
@@ -1914,10 +2006,41 @@ export const SuperAdminPage: React.FC = () => {
                     Authentication Security & Password Reset Flow
                   </div>
                   <p className="text-[11px] text-amber-800 leading-relaxed">
-                    Passwords are encrypted server-side by Firebase Authentication and are never transmitted, readable, or stored in Firestore. If the user has lost access or forgot their credentials, dispatch an official password reset link directly to their registered email address.
+                    Passwords are encrypted server-side by Firebase Authentication and are never transmitted, readable, or stored in Firestore.
                   </p>
                 </div>
               </div>
+
+              {selectedUserDetails.authProvider === 'google' ? (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-sm text-xs text-blue-900 space-y-1">
+                  <div className="font-semibold flex items-center gap-1.5 text-blue-800">
+                    <Info size={14} className="text-blue-600" />
+                    <span>Google OAuth Account (No Password to Reset)</span>
+                  </div>
+                  <p className="text-[11px] text-blue-800 leading-relaxed">
+                    This user registered via <strong>Sign in with Google</strong> and has no Firebase password credential. Password reset emails cannot be sent to Google OAuth accounts. Instruct the user to log in via the <em>Continue with Google</em> button.
+                  </p>
+                </div>
+              ) : selectedUserDetails.authProvider === 'mock' ? (
+                <div className="p-3 bg-slate-100 border border-slate-300 rounded-sm text-xs text-slate-800 space-y-1">
+                  <div className="font-semibold flex items-center gap-1.5 text-slate-700">
+                    <Info size={14} className="text-slate-500" />
+                    <span>Pre-seeded Demo Scholar Record</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    This profile is a demonstration catalog record not linked to an active Firebase Authentication user account.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-2.5 bg-amber-100/60 border border-amber-300/80 rounded-sm text-[11px] text-amber-900 space-y-1">
+                  <div>
+                    • <strong>Eligibility:</strong> Account uses Firebase Email/Password authentication.
+                  </div>
+                  <div>
+                    • <strong>Delivery Note:</strong> Due to Firebase Email Enumeration Protection, Firebase will only dispatch the email if this address is registered with an active password in project <code>{auth?.app?.options?.projectId || 'thelegendswiki'}</code>.
+                  </div>
+                </div>
+              )}
 
               {resetPasswordStatus.successMessage && (
                 <div className="p-2.5 bg-emerald-100 border border-emerald-300 rounded-sm text-xs text-emerald-800 font-medium flex items-center gap-2">
@@ -1933,9 +2056,9 @@ export const SuperAdminPage: React.FC = () => {
                 </div>
               )}
 
-              <div className="flex items-center justify-between pt-1">
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                 <span className="text-[11px] font-mono text-slate-600">
-                  Target: <strong className="text-slate-900">{selectedUserDetails.email}</strong>
+                  Target: <strong className="text-slate-900">{selectedUserDetails.email || 'No email registered'}</strong>
                   <span className="ml-1.5 text-[10px] text-slate-400 font-sans">
                     ({auth?.app?.options?.projectId || 'thelegendswiki'})
                   </span>
@@ -1943,12 +2066,24 @@ export const SuperAdminPage: React.FC = () => {
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => handleSendPasswordReset(selectedUserDetails.email)}
-                  disabled={resetPasswordStatus.loading}
+                  onClick={() => handleSendPasswordReset(selectedUserDetails)}
+                  disabled={
+                    resetPasswordStatus.loading ||
+                    selectedUserDetails.authProvider === 'google' ||
+                    selectedUserDetails.authProvider === 'mock' ||
+                    selectedUserDetails.authProvider === 'phone' ||
+                    !selectedUserDetails.email
+                  }
                   icon={<Mail size={13} className={resetPasswordStatus.loading ? 'animate-spin' : ''} />}
-                  className="text-xs bg-white hover:bg-slate-50 border-amber-300 text-amber-900 font-medium cursor-pointer"
+                  className="text-xs bg-white hover:bg-slate-50 border-amber-300 text-amber-900 font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {resetPasswordStatus.loading ? 'Dispatching Link...' : 'Send Password Reset Email'}
+                  {resetPasswordStatus.loading
+                    ? 'Dispatching Link...'
+                    : selectedUserDetails.authProvider === 'google'
+                    ? 'Ineligible (Google Account)'
+                    : selectedUserDetails.authProvider === 'mock'
+                    ? 'Ineligible (Demo User)'
+                    : 'Send Password Reset Email'}
                 </Button>
               </div>
             </div>

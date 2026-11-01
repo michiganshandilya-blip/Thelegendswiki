@@ -921,6 +921,10 @@ export const EditArticlePage: React.FC<EditArticlePageProps> = ({ slug }) => {
             markDirty();
             setSections(newSections);
           }}
+          onCitationsChange={(newCitations) => {
+            markDirty();
+            setCitations(newCitations);
+          }}
           onOpenAiWritingTools={(secIdx) => {
             setActiveSectionAiIndex(secIdx);
             setAiWritingModalOpen(true);

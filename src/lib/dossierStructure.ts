@@ -1,23 +1,13 @@
 import { ArticleSection, ArticleCitation } from '../types';
 
 /**
- * Standardized Investigative Dossier Structure for TheLegendsWiki
+ * Standardized 4-Section Article Writing Workflow for TheLegendsWiki
  * 
- * The article-writing workflow is organized into exactly 4 sections:
+ * Exactly 4 original writing sections:
  * 1. Case Overview
- *    - Case / Event Overview
- *    - The Official Story
  * 2. Investigation & Evidence
- *    - What Happened Behind the Curtains
- *    - Evidence & Documentation
  * 3. Impact & Unresolved Questions
- *    - The Turning Point
- *    - The Consequences
- *    - What Remains Unresolved
  * 4. Dossier Conclusion
- *    - Dossier Conclusion
- * 
- * Sources / References (Mandatory Citations Collection) are linked throughout.
  */
 
 export interface DossierSectionDefinition {
@@ -29,111 +19,55 @@ export interface DossierSectionDefinition {
   categoryGuidance?: Record<string, string>;
 }
 
-export const MANDATORY_DOSSIER_SECTIONS: DossierSectionDefinition[] = [
+export const ORIGINAL_FOUR_SECTIONS: DossierSectionDefinition[] = [
   {
     id: 'case-overview',
     order: 1,
-    title: 'Case / Event Overview',
-    helperText: 'Explain what the dossier is about, what happened or what is being investigated, the relevant entities, and why the subject matters.',
-    placeholder: 'Introduce the core case, key entities, timeline scope, and why this subject is historically or systemically consequential...',
+    title: 'Case Overview',
+    helperText: 'Introduce the core case, key entities, timeline scope, the publicly accepted official narrative, and why this subject is historically or systemically consequential.',
+    placeholder: 'Write or paste the complete Case Overview here. Cover the background, relevant entities, scope of the event, and the official public version of events...',
     categoryGuidance: {
-      'behind-financial-markets': 'Summarize the financial market event, asset class, institutions involved, and the scale of economic impact.',
-      'behind-corporations': 'Introduce the corporation, key executives, market position, and the nature of the corporate investigation.',
-      'behind-history': 'Establish the historical event, geopolitical actors, era, and historical significance.',
-      'behind-the-evidence': 'Introduce the specific document, ledger, leaked archive, or physical evidence being examined.',
-      'behind-the-mysteries': 'Introduce the unexplained disappearance, anomaly, or historical case and why it warrants investigation.',
+      'behind-financial-markets': 'Summarize the financial market event, asset class, institutions involved, and the standard market explanation.',
+      'behind-corporations': 'Introduce the corporation, key executives, market position, and the public corporate relations narrative.',
+      'behind-history': 'Establish the historical event, geopolitical actors, era, and the standard historical account.',
+      'behind-the-evidence': 'Introduce the specific document, ledger, or archive examined and its official interpretation.',
+      'behind-the-mysteries': 'Introduce the unexplained case, timeline, and known public accounts.',
     },
   },
   {
-    id: 'official-story',
+    id: 'investigation-evidence',
     order: 2,
-    title: 'The Official Story',
-    helperText: 'Explain the publicly accepted, officially reported, or commonly documented version of events.',
-    placeholder: 'Document the mainstream consensus, press releases, government statements, standard textbooks, or official committee findings...',
+    title: 'Investigation & Evidence',
+    helperText: 'Present the verified investigative discoveries, backroom transactions and decisions, hidden incentives, overlooked mechanisms, and documented primary or secondary evidence.',
+    placeholder: 'Write or paste the complete Investigation & Evidence here. Detail what happened behind the curtains, verified transactions, documents, and evidentiary findings...',
     categoryGuidance: {
-      'behind-financial-markets': 'Present the standard market explanation, official regulatory releases, and mainstream financial news consensus.',
-      'behind-corporations': 'Present the public corporate relations narrative, annual report disclosures, and official executive statements.',
-      'behind-history': 'Present the standard historiographical account and officially sanctioned narrative of the era.',
-      'behind-the-evidence': 'Present the official interpretation, original classification, or initial public explanation of the record.',
-      'behind-the-mysteries': 'Present the known public accounts, initial police/investigative reports, and popular explanations.',
-    },
-  },
-  {
-    id: 'behind-the-curtains',
-    order: 3,
-    title: 'What Happened Behind the Curtains',
-    helperText: 'Present the important decisions, relationships, circumstances, mechanisms, overlooked details, or developments that are not obvious from the standard public narrative. Do NOT present speculation as established fact.',
-    placeholder: 'Expose the verified internal decisions, opaque transactions, backroom communications, hidden incentives, or overlooked developments...',
-    categoryGuidance: {
-      'behind-financial-markets': 'Expose the underlying liquidity mechanisms, off-balance-sheet vehicles, synthetic derivatives, or private collusion.',
-      'behind-corporations': 'Expose private boardroom deliberations, concealed conflicts of interest, internal memos, or backroom dealings.',
-      'behind-history': 'Detail the undisclosed diplomatic cables, unpublicized pacts, private motivations, or overlooked circumstances.',
-      'behind-the-evidence': 'Detail what the underlying document reveals when analyzed against suppressed context and internal logs.',
-      'behind-the-mysteries': 'Present verified overlooked circumstances, hidden witness accounts, anomalous data, and timeline discrepancies.',
-    },
-  },
-  {
-    id: 'evidence-documentation',
-    order: 4,
-    title: 'Evidence & Documentation',
-    helperText: 'Present the evidence supporting the claims made in the dossier. Sources must be connected to the relevant claims wherever practical. Use credible and identifiable sources. Distinguish primary evidence from secondary reporting when possible.',
-    placeholder: 'Catalogue verified primary sources, audit records, judicial filings, regulatory depositions, declassified cables, or data forensics...',
-    categoryGuidance: {
-      'behind-financial-markets': 'Cite regulatory filings (SEC/FINRA/CFTC), settlement decrees, trading logs, and accounting audits.',
-      'behind-corporations': 'Cite internal whistleblower memos, court depositions, forensic accounting audits, and FOIA releases.',
-      'behind-history': 'Cite declassified state archives, diplomatic dispatches, contemporaneous journals, and treaty transcripts.',
+      'behind-financial-markets': 'Expose the underlying liquidity mechanisms, off-balance-sheet vehicles, synthetic derivatives, and regulatory findings.',
+      'behind-corporations': 'Expose private boardroom deliberations, internal whistleblower memos, court depositions, and forensic audits.',
+      'behind-history': 'Detail the undisclosed diplomatic cables, unpublicized pacts, declassified archives, and contemporaneous records.',
       'behind-the-evidence': 'Examine chain of custody, authentication records, metadata analysis, and corroborating archives.',
-      'behind-the-mysteries': 'Cite authenticated case files, physical evidence logs, forensic pathology reports, and radar/telemetry data.',
+      'behind-the-mysteries': 'Detail verified overlooked circumstances, physical evidence logs, forensic pathology reports, and radar data.',
     },
   },
   {
-    id: 'turning-point',
-    order: 5,
-    title: 'The Turning Point',
-    helperText: 'Explain the specific event, discovery, document, decision, revelation, or development that significantly changed the course or understanding of the case.',
-    placeholder: 'Identify the exact catalyst—a pivotal leak, critical audit failure, sudden default, unexpected confession, or archival discovery...',
+    id: 'impact-unresolved',
+    order: 3,
+    title: 'Impact & Unresolved Questions',
+    helperText: 'Detail the turning point, consequences, institutional or legal aftermath, and questions that remain unanswered, disputed, or missing in the evidentiary record.',
+    placeholder: 'Write or paste the complete Impact & Unresolved Questions here. Detail the catalysts, consequences, regulatory aftermath, and open questions...',
     categoryGuidance: {
-      'behind-financial-markets': 'Highlight the sudden margin call, bank run, liquidity freeze, or whistleblower alert that broke the scheme.',
-      'behind-corporations': 'Highlight the internal leak, subpoena, investigative series, or executive resignation that triggered exposure.',
-      'behind-history': 'Highlight the pivotal intelligence intercept, battle turn, treaty breach, or leadership shift that altered the outcome.',
-      'behind-the-evidence': 'Highlight the breakthrough decryption, forensic discovery, or unsealing order that proved the document’s veracity.',
-      'behind-the-mysteries': 'Highlight the crucial physical discovery, unsealed archive, or breakthrough lead that reshaped the investigation.',
-    },
-  },
-  {
-    id: 'consequences',
-    order: 6,
-    title: 'The Consequences',
-    helperText: 'Explain what happened afterward and the resulting financial, corporate, historical, legal, institutional, or other relevant consequences.',
-    placeholder: 'Detail the concrete aftermath: bankruptcies, regulatory reforms, geopolitical treaties, legal convictions, or institutional shifts...',
-    categoryGuidance: {
-      'behind-financial-markets': 'Detail market collapses, wealth redistribution, criminal indictments, and new financial regulations.',
-      'behind-corporations': 'Detail corporate restructuring, civil penalties, loss of market value, and board overhauls.',
-      'behind-history': 'Detail territorial changes, geopolitical alignments, societal impact, and long-term historical legacy.',
-      'behind-the-evidence': 'Detail how the revelation forced policy revisions, historical reassessments, or legal reforms.',
-      'behind-the-mysteries': 'Detail subsequent institutional actions, protocol changes, closed investigations, or ongoing public debates.',
-    },
-  },
-  {
-    id: 'unresolved-questions',
-    order: 7,
-    title: 'What Remains Unresolved',
-    helperText: 'Clearly identify unanswered questions, disputed claims, missing evidence, conflicting accounts, or facts that cannot currently be independently verified.',
-    placeholder: 'List unverified claims, sealed records, missing ledgers, disputed testimonies, or questions that current evidence cannot answer...',
-    categoryGuidance: {
-      'behind-financial-markets': 'Identify missing trading archives, unrecovered offshore funds, and unprosecuted intermediaries.',
-      'behind-corporations': 'Identify sealed settlements, destroyed records, unaddressed shareholder claims, and unanswered executive roles.',
-      'behind-history': 'Identify withheld archival tranches, contradictory eyewitness testimonies, and unresolved historical debates.',
-      'behind-the-evidence': 'Identify missing corroborating pages, contested provenance points, and unverified secondary assertions.',
-      'behind-the-mysteries': 'Identify missing physical remains/artifacts, unverified sightings, and hypotheses that lack definitive proof.',
+      'behind-financial-markets': 'Highlight the catalyst, market collapses, regulatory reforms, missing archives, and unrecovered funds.',
+      'behind-corporations': 'Highlight pivotal leaks, restructuring, civil penalties, sealed settlements, and unanswered executive roles.',
+      'behind-history': 'Highlight key intercepts, geopolitical alignments, societal impact, withheld archives, and unresolved debates.',
+      'behind-the-evidence': 'Highlight breakthrough discoveries, policy revisions, missing corroborating pages, and contested points.',
+      'behind-the-mysteries': 'Highlight breakthrough discoveries, institutional protocol changes, missing artifacts, and unverified hypotheses.',
     },
   },
   {
     id: 'dossier-conclusion',
-    order: 8,
+    order: 4,
     title: 'Dossier Conclusion',
-    helperText: 'Provide a concise, evidence-based conclusion that summarizes the significance of the dossier without sensationalism or unsupported speculation.',
-    placeholder: 'Provide an objective, evidence-based assessment summarizing the dossier’s core significance and lasting institutional lessons...',
+    helperText: 'Provide a concise, objective, evidence-based conclusion summarizing the dossier’s core significance and lasting historical or structural lessons.',
+    placeholder: 'Write or paste the Dossier Conclusion here. Summarize key findings, lessons learned, and the enduring significance of the dossier...',
     categoryGuidance: {
       'behind-financial-markets': 'Summarize the structural vulnerabilities exposed in modern financial architecture.',
       'behind-corporations': 'Summarize the ethical, governance, and oversight lessons from the corporate investigation.',
@@ -144,10 +78,9 @@ export const MANDATORY_DOSSIER_SECTIONS: DossierSectionDefinition[] = [
   },
 ];
 
-/**
- * Exactly 4 visible sections for the article-writing workflow.
- * Groups the underlying dossier fields under 4 coherent editorial sections.
- */
+// Alias for backwards compatibility with any modules expecting MANDATORY_DOSSIER_SECTIONS
+export const MANDATORY_DOSSIER_SECTIONS: DossierSectionDefinition[] = ORIGINAL_FOUR_SECTIONS;
+
 export interface WorkflowSectionDefinition {
   id: string;
   order: number;
@@ -161,37 +94,37 @@ export const ARTICLE_WORKFLOW_SECTIONS: WorkflowSectionDefinition[] = [
     id: 'case-overview',
     order: 1,
     title: 'Case Overview',
-    subtitle: 'Case / Event Overview & The Official Story',
-    fieldIds: ['case-overview', 'official-story'],
+    subtitle: 'Background, scope, entities & official narrative',
+    fieldIds: ['case-overview'],
   },
   {
     id: 'investigation-evidence',
     order: 2,
     title: 'Investigation & Evidence',
-    subtitle: 'What Happened Behind the Curtains & Evidence & Documentation',
-    fieldIds: ['behind-the-curtains', 'evidence-documentation'],
+    subtitle: 'Behind the curtains analysis & documented evidence',
+    fieldIds: ['investigation-evidence'],
   },
   {
     id: 'impact-unresolved',
     order: 3,
     title: 'Impact & Unresolved Questions',
-    subtitle: 'The Turning Point, The Consequences & What Remains Unresolved',
-    fieldIds: ['turning-point', 'consequences', 'unresolved-questions'],
+    subtitle: 'Turning point, consequences & open questions',
+    fieldIds: ['impact-unresolved'],
   },
   {
     id: 'dossier-conclusion',
     order: 4,
     title: 'Dossier Conclusion',
-    subtitle: 'Dossier Conclusion',
+    subtitle: 'Objective assessment & enduring lessons',
     fieldIds: ['dossier-conclusion'],
   },
 ];
 
 /**
- * Creates a fresh, standardized 8-section template for a new article.
+ * Creates a fresh, standardized 4-section template for a new article.
  */
 export function createDefaultDossierSections(): ArticleSection[] {
-  return MANDATORY_DOSSIER_SECTIONS.map((def) => ({
+  return ORIGINAL_FOUR_SECTIONS.map((def) => ({
     id: def.id,
     title: def.title,
     content: [''],
@@ -201,8 +134,8 @@ export function createDefaultDossierSections(): ArticleSection[] {
 }
 
 /**
- * Normalizes and maps any existing article sections into the mandatory 8-section structure.
- * Preserves all existing content, bullet points, figures, subsections, and epistemic claims without discarding data.
+ * Normalizes and maps any existing article sections into the exactly 4 original sections.
+ * Safely preserves all existing user content without data loss.
  */
 export function mapToStandardDossierSections(
   existingSections?: ArticleSection[],
@@ -211,7 +144,6 @@ export function mapToStandardDossierSections(
   const result: ArticleSection[] = createDefaultDossierSections();
 
   if (!existingSections || existingSections.length === 0) {
-    // If there is only raw content, put it into section 1 (Case Overview) or split into sections
     if (rawContent) {
       const text = typeof rawContent === 'string' ? rawContent : rawContent.join('\n\n');
       if (text.trim()) {
@@ -221,78 +153,127 @@ export function mapToStandardDossierSections(
     return result;
   }
 
-  // Keep track of which existing sections got mapped
-  const mappedIndices = new Set<number>();
-
-  // 1. Try exact or fuzzy title matching against mandatory sections
-  MANDATORY_DOSSIER_SECTIONS.forEach((def, targetIdx) => {
-    const cleanDefTitle = def.title.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const cleanDefId = def.id.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-    const foundIdx = existingSections.findIndex((sec, sIdx) => {
-      if (mappedIndices.has(sIdx)) return false;
-      const cleanSecTitle = (sec.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-      const cleanSecId = (sec.id || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-
-      return (
-        cleanSecTitle === cleanDefTitle ||
-        cleanSecId === cleanDefId ||
-        cleanSecTitle.includes(cleanDefTitle) ||
-        cleanDefTitle.includes(cleanSecTitle) ||
-        (def.id === 'case-overview' && (cleanSecTitle.includes('overview') || cleanSecTitle.includes('introduction') || cleanSecTitle.includes('background'))) ||
-        (def.id === 'official-story' && (cleanSecTitle.includes('official') || cleanSecTitle.includes('narrative') || cleanSecTitle.includes('accepted'))) ||
-        (def.id === 'behind-the-curtains' && (cleanSecTitle.includes('behind') || cleanSecTitle.includes('curtain') || cleanSecTitle.includes('mechanism') || cleanSecTitle.includes('hidden'))) ||
-        (def.id === 'evidence-documentation' && (cleanSecTitle.includes('evidence') || cleanSecTitle.includes('document') || cleanSecTitle.includes('records') || cleanSecTitle.includes('proof'))) ||
-        (def.id === 'turning-point' && (cleanSecTitle.includes('turning') || cleanSecTitle.includes('point') || cleanSecTitle.includes('catalyst') || cleanSecTitle.includes('discovery'))) ||
-        (def.id === 'consequences' && (cleanSecTitle.includes('consequence') || cleanSecTitle.includes('aftermath') || cleanSecTitle.includes('impact') || cleanSecTitle.includes('result'))) ||
-        (def.id === 'unresolved-questions' && (cleanSecTitle.includes('unresolved') || cleanSecTitle.includes('mystery') || cleanSecTitle.includes('question') || cleanSecTitle.includes('open'))) ||
-        (def.id === 'dossier-conclusion' && (cleanSecTitle.includes('conclusion') || cleanSecTitle.includes('summary') || cleanSecTitle.includes('assessment') || cleanSecTitle.includes('closing')))
-      );
+  // If already exactly 4 sections matching our 4 original IDs or titles
+  if (existingSections.length === 4) {
+    const isDirectMatch = existingSections.every((sec, i) => {
+      const def = ORIGINAL_FOUR_SECTIONS[i];
+      const secId = (sec.id || '').toLowerCase();
+      const secTitle = (sec.title || '').toLowerCase();
+      return secId === def.id || secTitle === def.title.toLowerCase();
     });
-
-    if (foundIdx >= 0) {
-      const match = existingSections[foundIdx];
-      mappedIndices.add(foundIdx);
-      result[targetIdx] = {
-        id: def.id,
-        title: def.title,
-        content: match.content && match.content.length > 0 && match.content.some((p) => p.trim()) ? match.content : [''],
-        bulletPoints: match.bulletPoints || [],
-        orderedPoints: match.orderedPoints,
-        figure: match.figure,
-        subsections: match.subsections,
-        claims: match.claims || [],
-      };
+    if (isDirectMatch) {
+      return existingSections.map((sec, i) => ({
+        ...sec,
+        id: ORIGINAL_FOUR_SECTIONS[i].id,
+        title: ORIGINAL_FOUR_SECTIONS[i].title,
+        content: sec.content && sec.content.length > 0 ? sec.content : [''],
+      }));
     }
-  });
+  }
 
-  // 2. If there are existing sections that weren't matched, preserve them by appending their content to the most relevant section or Case Overview
+  // Accumulate content into the 4 target section buckets
+  const sectionBuckets: Array<{
+    paragraphs: string[];
+    bulletPoints: string[];
+    figure?: any;
+    claims: any[];
+  }> = [
+    { paragraphs: [], bulletPoints: [], claims: [] },
+    { paragraphs: [], bulletPoints: [], claims: [] },
+    { paragraphs: [], bulletPoints: [], claims: [] },
+    { paragraphs: [], bulletPoints: [], claims: [] },
+  ];
+
   existingSections.forEach((sec, sIdx) => {
-    if (!mappedIndices.has(sIdx)) {
-      const secText = (sec.content || []).join('\n\n').trim();
-      if (secText) {
-        // Append to Case Overview or Behind the Curtains
-        const target = result[2].content[0] ? result[2] : result[0];
-        const existingText = target.content.join('\n\n').trim();
-        target.content = existingText 
-          ? [existingText, `### ${sec.title}`, ...sec.content] 
-          : sec.content;
+    const titleLower = (sec.title || '').toLowerCase().trim();
+    const idLower = (sec.id || '').toLowerCase().trim();
 
-        if (sec.bulletPoints && sec.bulletPoints.length > 0) {
-          target.bulletPoints = [...(target.bulletPoints || []), ...sec.bulletPoints];
-        }
-        if (!target.figure && sec.figure) {
-          target.figure = sec.figure;
-        }
-      }
+    let targetIndex = 0;
+
+    if (
+      idLower === 'dossier-conclusion' ||
+      titleLower.includes('conclusion') ||
+      titleLower.includes('closing') ||
+      titleLower.includes('epilogue') ||
+      (existingSections.length === 8 && sIdx === 7) ||
+      (existingSections.length === 4 && sIdx === 3)
+    ) {
+      targetIndex = 3;
+    } else if (
+      idLower === 'impact-unresolved' ||
+      idLower === 'turning-point' ||
+      idLower === 'consequences' ||
+      idLower === 'unresolved-questions' ||
+      titleLower.includes('turning point') ||
+      titleLower.includes('consequence') ||
+      titleLower.includes('unresolved') ||
+      titleLower.includes('impact') ||
+      titleLower.includes('aftermath') ||
+      (existingSections.length === 8 && (sIdx === 4 || sIdx === 5 || sIdx === 6)) ||
+      (existingSections.length === 4 && sIdx === 2)
+    ) {
+      targetIndex = 2;
+    } else if (
+      idLower === 'investigation-evidence' ||
+      idLower === 'behind-the-curtains' ||
+      idLower === 'evidence-documentation' ||
+      titleLower.includes('behind the curtains') ||
+      titleLower.includes('behind the curtain') ||
+      titleLower.includes('investigation') ||
+      titleLower.includes('evidence') ||
+      titleLower.includes('documentation') ||
+      titleLower.includes('records') ||
+      (existingSections.length === 8 && (sIdx === 2 || sIdx === 3)) ||
+      (existingSections.length === 4 && sIdx === 1)
+    ) {
+      targetIndex = 1;
+    } else {
+      // Default to section 0 (Case Overview)
+      targetIndex = 0;
+    }
+
+    const bucket = sectionBuckets[targetIndex];
+    const secParas = (sec.content || [])
+      .flatMap((c) => (typeof c === 'string' ? c.split(/\n\n+/) : [c]))
+      .filter((p) => (typeof p === 'string' ? p.trim().length > 0 : Boolean(p)));
+
+    // If bucket already has content and this is another distinct section being merged, include a clean markdown subtitle
+    if (
+      bucket.paragraphs.length > 0 &&
+      secParas.length > 0 &&
+      sec.title &&
+      !sec.title.toLowerCase().includes(ORIGINAL_FOUR_SECTIONS[targetIndex].title.toLowerCase())
+    ) {
+      bucket.paragraphs.push(`### ${sec.title}`);
+    }
+    bucket.paragraphs.push(...secParas);
+
+    if (sec.bulletPoints && sec.bulletPoints.length > 0) {
+      bucket.bulletPoints.push(...sec.bulletPoints);
+    }
+    if (!bucket.figure && sec.figure) {
+      bucket.figure = sec.figure;
+    }
+    if (sec.claims && sec.claims.length > 0) {
+      bucket.claims.push(...sec.claims);
     }
   });
 
-  return result;
+  return ORIGINAL_FOUR_SECTIONS.map((def, idx) => {
+    const bucket = sectionBuckets[idx];
+    return {
+      id: def.id,
+      title: def.title,
+      content: bucket.paragraphs.length > 0 ? bucket.paragraphs : [''],
+      bulletPoints: bucket.bulletPoints,
+      figure: bucket.figure,
+      claims: bucket.claims,
+    };
+  });
 }
 
 /**
- * Validates that all 8 mandatory sections contain meaningful text and at least 1 citation exists.
+ * Validates that all 4 original sections contain meaningful text and at least 1 citation exists.
  */
 export function validateDossierSubmission(
   sections: ArticleSection[],
@@ -306,15 +287,15 @@ export function validateDossierSubmission(
   const sectionErrors: Record<string, string> = {};
   const missingSectionTitles: string[] = [];
 
-  MANDATORY_DOSSIER_SECTIONS.forEach((def, index) => {
-    const sec = sections[index] || sections.find((s) => s.id === def.id || s.title === def.title);
-    const content = sec?.content ? sec.content.join(' ').trim() : '';
+  ORIGINAL_FOUR_SECTIONS.forEach((def, index) => {
+    const sec = sections[index] || sections.find((s) => s.id === def.id || s.title?.toLowerCase().includes(def.title.toLowerCase()));
+    const content = sec?.content
+      ? (Array.isArray(sec.content) ? sec.content.join(' ').trim() : String(sec.content).trim())
+      : '';
 
     if (!content || content.length < 15) {
-      const wf = ARTICLE_WORKFLOW_SECTIONS.find((w) => w.fieldIds.includes(def.id));
-      const wfPrefix = wf ? `Section ${wf.order} (${wf.title}) - ` : '';
-      sectionErrors[def.id] = `${wfPrefix}"${def.title}" is required and must contain meaningful content (minimum 15 characters).`;
-      missingSectionTitles.push(`${wfPrefix}${def.title}`);
+      sectionErrors[def.id] = `Section ${index + 1} ("${def.title}") requires meaningful content (minimum 15 characters).`;
+      missingSectionTitles.push(`Section ${index + 1} (${def.title})`);
     }
   });
 
@@ -324,7 +305,7 @@ export function validateDossierSubmission(
   );
 
   if (validCitations.length === 0) {
-    citationError = 'Section §9 Sources / References is mandatory. At least one verifiable source or reference must be provided before submission.';
+    citationError = 'Section §5 Sources / References is mandatory. At least one verifiable source or reference must be provided before submission.';
   }
 
   return {

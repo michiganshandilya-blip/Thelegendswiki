@@ -887,6 +887,10 @@ export const CreateArticlePage: React.FC = () => {
           markDirty();
           setSections(newSections);
         }}
+        onCitationsChange={(newCitations) => {
+          markDirty();
+          setCitations(newCitations);
+        }}
         onOpenAiWritingTools={(secIdx) => {
           setActiveSectionAiIndex(secIdx);
           setAiWritingModalOpen(true);

@@ -77,7 +77,7 @@ const defaultInitialUsers: UserProfile[] = [
     displayName: 'Callimachus of Cyrene',
     email: 'callimachus@alexandrialibrary.org',
     role: 'admin',
-    authProvider: 'password',
+    authProvider: 'mock',
     photoURL: '',
     bio: 'Chief cataloger and creator of the Pinakes encyclopedic registry.',
     disabled: false,
@@ -92,7 +92,7 @@ const defaultInitialUsers: UserProfile[] = [
     displayName: 'Hypatia of Alexandria',
     email: 'hypatia@alexandrialibrary.org',
     role: 'admin',
-    authProvider: 'password',
+    authProvider: 'mock',
     photoURL: '',
     bio: 'Mathematician, astronomer, and peer review curator.',
     disabled: false,
@@ -107,7 +107,7 @@ const defaultInitialUsers: UserProfile[] = [
     displayName: 'Eratosthenes',
     email: 'eratosthenes@alexandrialibrary.org',
     role: 'user',
-    authProvider: 'password',
+    authProvider: 'mock',
     photoURL: '',
     bio: 'Chief librarian, geographer, and computational archivist.',
     disabled: false,
@@ -122,7 +122,7 @@ const defaultInitialUsers: UserProfile[] = [
     displayName: 'Claudius Ptolemy',
     email: 'ptolemy@alexandrialibrary.org',
     role: 'user',
-    authProvider: 'password',
+    authProvider: 'mock',
     photoURL: '',
     bio: 'Cartographer and author of astronomical treaties.',
     disabled: false,
@@ -137,7 +137,7 @@ const defaultInitialUsers: UserProfile[] = [
     displayName: 'Dr. Marcus Vance',
     email: 'scholar@thelegendswiki.org',
     role: 'admin',
-    authProvider: 'password',
+    authProvider: 'mock',
     photoURL: '',
     bio: 'Senior archivist specializing in Classical Antiquity, lost civilizations, and Alexandrian records.',
     disabled: false,
@@ -307,7 +307,12 @@ function toIsoDate(val: any): string {
 
 export function normalizeUserDoc(id: string, data: any): UserProfile {
   const rawUsername = data.username || data.handle || id || 'scholar';
-  const email = (data.email || '').trim().toLowerCase();
+  let email = (data.email || '').trim().toLowerCase();
+
+  // Root Super Admin email recovery if missing in document
+  if (!email && (id === 'super-admin-root-01' || id === 'BxZjx67qdfSYiPCnDN1Q279Jzks2' || rawUsername === 'super_admin_michigan')) {
+    email = DESIGNATED_SUPER_ADMIN_EMAIL.toLowerCase();
+  }
   
   // Enforce super_admin for designated root email
   let role: UserRole = (data.role as UserRole) || 'user';
@@ -320,6 +325,18 @@ export function normalizeUserDoc(id: string, data: any): UserProfile {
   }
 
   const bio = data.bio || data.scholarlyBiography || '';
+  let authProvider = data.authProvider;
+  if (!authProvider) {
+    if (id.startsWith('user-scholar-') || id === 'demo-scholar-id') {
+      authProvider = 'mock';
+    } else if (data.phoneNumber && !email) {
+      authProvider = 'phone';
+    } else if (id === 'BxZjx67qdfSYiPCnDN1Q279Jzks2' || email === DESIGNATED_SUPER_ADMIN_EMAIL.toLowerCase()) {
+      authProvider = 'password';
+    } else {
+      authProvider = 'password';
+    }
+  }
 
   return {
     id: id || data.id,
@@ -328,6 +345,7 @@ export function normalizeUserDoc(id: string, data: any): UserProfile {
     email,
     phoneNumber: data.phoneNumber || '',
     role,
+    authProvider,
     photoURL: data.photoURL || '',
     bio,
     scholarlyBiography: data.scholarlyBiography || bio,
@@ -657,6 +675,7 @@ export async function ensureUserProfile(
     displayName?: string | null;
     photoURL?: string | null;
     phoneNumber?: string | null;
+    providerData?: Array<{ providerId: string }> | null;
     metadata?: {
       creationTime?: string;
       lastSignInTime?: string;
@@ -680,6 +699,23 @@ export async function ensureUserProfile(
     const phoneNumber = (authUser.phoneNumber || '').trim();
     const isSuperAdminEmail = email === DESIGNATED_SUPER_ADMIN_EMAIL.toLowerCase();
 
+    // Determine the authentication provider from Firebase credentials/providerData
+    let detectedProvider: 'password' | 'google' | 'apple' | 'phone' | 'mock' | string = 'password';
+    if (authUser.providerData && authUser.providerData.length > 0) {
+      const pIds = authUser.providerData.map((p) => p.providerId);
+      if (pIds.some((p) => p === 'google.com' || p.includes('google'))) {
+        detectedProvider = 'google';
+      } else if (pIds.some((p) => p === 'apple.com' || p.includes('apple'))) {
+        detectedProvider = 'apple';
+      } else if (pIds.some((p) => p === 'phone' || p.includes('phone'))) {
+        detectedProvider = 'phone';
+      } else if (pIds.some((p) => p === 'password')) {
+        detectedProvider = 'password';
+      }
+    } else if (phoneNumber && !email) {
+      detectedProvider = 'phone';
+    }
+
     // Check if doc exists in Firestore first
     let existing: UserProfile | null = null;
     if (isFirebaseConfigured() && db) {
@@ -699,6 +735,18 @@ export async function ensureUserProfile(
     }
 
     if (existing) {
+      // Synchronize authProvider if missing or if a specific OAuth/phone provider was detected
+      if (!existing.authProvider || (detectedProvider !== 'password' && existing.authProvider === 'password')) {
+        existing = { ...existing, authProvider: detectedProvider };
+        if (isFirebaseConfigured() && db) {
+          try {
+            await setDoc(doc(db, USERS_COLLECTION, authUser.uid), { authProvider: detectedProvider }, { merge: true });
+          } catch (e) {
+            // Non-blocking
+          }
+        }
+      }
+
       // If email is root super admin email, enforce super_admin role and clean up any placeholder records
       if (isSuperAdminEmail) {
         fallbackUsers = fallbackUsers.filter(
@@ -803,6 +851,7 @@ export async function ensureUserProfile(
       email,
       phoneNumber,
       role: assignedRole,
+      authProvider: detectedProvider,
       photoURL: authUser.photoURL || '',
       bio: isSuperAdminEmail 
         ? 'Chief Super Administrator of TheLegendsWiki.' 

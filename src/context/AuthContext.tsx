@@ -87,12 +87,29 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const email = (firebaseUser.email || '').trim().toLowerCase();
     const isDesignatedSuperAdmin = email === DESIGNATED_SUPER_ADMIN_EMAIL.toLowerCase();
 
+    let detectedProvider: 'password' | 'google' | 'apple' | 'phone' | string = 'password';
+    if (firebaseUser.providerData && firebaseUser.providerData.length > 0) {
+      const pIds = firebaseUser.providerData.map((p) => p.providerId);
+      if (pIds.some((p) => p === 'google.com' || p.includes('google'))) {
+        detectedProvider = 'google';
+      } else if (pIds.some((p) => p === 'apple.com' || p.includes('apple'))) {
+        detectedProvider = 'apple';
+      } else if (pIds.some((p) => p === 'phone' || p.includes('phone'))) {
+        detectedProvider = 'phone';
+      } else if (pIds.some((p) => p === 'password')) {
+        detectedProvider = 'password';
+      }
+    } else if (firebaseUser.phoneNumber && !email) {
+      detectedProvider = 'phone';
+    }
+
     return {
       id: firebaseUser.uid,
       username: cleanHandle,
       displayName: firebaseUser.displayName || cleanHandle,
       email,
       role: isDesignatedSuperAdmin ? 'super_admin' : 'user',
+      authProvider: detectedProvider,
       photoURL: firebaseUser.photoURL || '',
       bio: isDesignatedSuperAdmin 
         ? 'Chief Super Administrator of TheLegendsWiki.' 

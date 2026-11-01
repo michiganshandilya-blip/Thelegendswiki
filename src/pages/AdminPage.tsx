@@ -1382,8 +1382,22 @@ export const AdminPage: React.FC = () => {
                   <h4 className="font-serif font-bold text-sm text-[#101418]">Scholarly References ({reviewingArticle.citations.length})</h4>
                   <ul className="space-y-1 bg-[#f8f9fa] p-3 rounded-sm border border-[#eaecf0]">
                     {reviewingArticle.citations.map((c) => (
-                      <li key={c.id} className="text-[11px] font-mono text-[#475569]">
-                        [{c.id}] {c.author ? `${c.author}. ` : ''}<em>{c.title}</em> {c.year ? `(${c.year})` : ''}
+                      <li key={c.id} className="text-[11px] font-mono text-[#475569] flex items-center justify-between gap-2">
+                        <span className="truncate">
+                          [{c.id}] {c.author ? `${c.author}. ` : ''}<em>{c.title}</em> {c.year ? `(${c.year})` : ''}
+                        </span>
+                        {c.url && (
+                          <a
+                            href={c.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[#3366cc] hover:underline shrink-0 text-[10px]"
+                            title={`Open source: ${c.url}`}
+                          >
+                            <span>Source Doc</span>
+                            <ExternalLink size={10} />
+                          </a>
+                        )}
                       </li>
                     ))}
                   </ul>
